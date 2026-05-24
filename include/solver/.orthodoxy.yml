@@ -1,0 +1,26 @@
+---
+# Strict Orthodox C++ for our public headers (same ruleset as src/). Polarity:
+# false = DISALLOW. See src/.orthodoxy.yml for rationale.
+InheritParent: false
+
+Class: false
+Constructor: false
+Destructor: false
+Inheritance: false
+MemberFunction: false
+EnumClass: false
+NamedCast: false
+Overload: false
+Reference: false
+Lambda: false
+New: false
+Auto: false
+UserDefinedLiteral: false
+DefaultArgument: false
+Mutable: false
+RangeBasedLoop: false
+Namespace: false
+Exception: false
+
+CStyleCast: true
+Template: true

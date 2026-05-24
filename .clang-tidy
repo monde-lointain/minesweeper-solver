@@ -1,0 +1,41 @@
+# Loosened for Orthodox C++ (C-like subset): C-style casts, malloc/free, C
+# headers, no auto, plain enums, free functions, no namespace. We keep the
+# correctness-focused families and drop the ones that fight Orthodox style.
+Checks: >
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  clang-diagnostic-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-function-cognitive-complexity,
+  -readability-braces-around-statements,
+  -readability-isolate-declaration,
+  -readability-avoid-nested-conditional-operator,
+  -readability-uppercase-literal-suffix,
+  -readability-redundant-casting,
+  -readability-simplify-boolean-expr,
+  -performance-enum-size,
+  -clang-diagnostic-unused-macros
+HeaderFilterRegex: 'include/solver/.*'
+CheckOptions:
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+  - key: readability-identifier-naming.FunctionCase
+    value: lower_case
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case
+  - key: readability-identifier-naming.ParameterCase
+    value: lower_case
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE

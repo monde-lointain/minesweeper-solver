@@ -1,0 +1,30 @@
+---
+# Permissive root config (everything allowed: true). Covers any file under the
+# project root lacking a closer config — in particular FetchContent dependency
+# headers under build/_deps that our plugin-checked TUs #include, and generated
+# probe TUs. Our own code is governed by the strict src/ and include/solver/
+# configs (InheritParent:false, so they ignore this file).
+InheritParent: false
+
+Class: true
+NonPOD: true
+Constructor: true
+Destructor: true
+Inheritance: true
+MemberFunction: true
+EnumClass: true
+Access: true
+CStyleCast: true
+NamedCast: true
+Overload: true
+Reference: true
+Exception: true
+Template: true
+RangeBasedLoop: true
+Lambda: true
+New: true
+Auto: true
+UserDefinedLiteral: true
+DefaultArgument: true
+Namespace: true
+Mutable: true
