@@ -2,7 +2,8 @@
  *
  * Pipeline (flags ignored throughout; every covered cell is an unknown):
  *   1. Build constraints from revealed numbers over their covered neighbors.
- *   2. Single-point deduction to a fixpoint (shrinks the CSP, marks forced cells).
+ *   2. Single-point deduction to a fixpoint (shrinks the CSP, marks forced
+ * cells).
  *   3. Split the residual unknown frontier into connected components.
  *   4. Backtrack-enumerate each component: per mine-count k, #solutions and
  *      per-variable mine incidence.
@@ -10,7 +11,8 @@
  *      leave-one-out convolution DP -> exact per-cell P(mine).
  * Exact enumeration subsumes subset reduction for correctness (a var that is a
  * mine in every solution gets P=1 -> forced_mine, etc.); subset reduction would
- * only shrink components, which the per-component cap + node budget already bound.
+ * only shrink components, which the per-component cap + node budget already
+ * bound.
  *
  * Orthodox C++: POD, plain enums, pointers, C headers, fixed file-scope scratch
  * (single-threaded; analysis runs once per move).
@@ -25,22 +27,24 @@ enum { VAR_UNKNOWN = -1, VAR_SAFE = 0, VAR_MINE = 1 };
 
 enum {
   MAXCELL = BOARD_MAX_CELLS,
-  CAP_VARS = 24,    /* per-component enumeration cap */
-  MAXCOMP = 128,    /* exact-DP component cap */
-  MAXFLEN = 256,    /* exact-DP total-frontier-mine cap + 1 */
-  MAXVARCON = 8     /* a covered cell borders <= 8 numbered cells */
+  CAP_VARS = 24, /* per-component enumeration cap */
+  MAXCOMP = 128, /* exact-DP component cap */
+  MAXFLEN = 256, /* exact-DP total-frontier-mine cap + 1 */
+  MAXVARCON = 8  /* a covered cell borders <= 8 numbered cells */
 };
 
 static const long double EPS = 1e-9L;
 static const int NODE_BUDGET = 5000000;
 
-/* ---- constraint / variable model ------------------------------------------ */
+/* ---- constraint / variable model ------------------------------------------
+ */
 static int g_var_of_cell[MAXCELL]; /* cell idx -> var id, or -1 */
 static int g_cell_of_var[MAXCELL]; /* var id -> cell idx */
 static int g_nvar;
 static int g_vstate[MAXCELL]; /* per var: VAR_UNKNOWN/SAFE/MINE */
 
-static int g_con_var[MAXCELL][8]; /* constraint -> var ids of covered neighbors */
+static int g_con_var[MAXCELL]
+                    [8]; /* constraint -> var ids of covered neighbors */
 static int g_con_nv[MAXCELL];
 static int g_con_need[MAXCELL]; /* total mines among those vars (= adjacent) */
 static int g_ncon;
@@ -54,7 +58,7 @@ static int g_local_of_var[MAXCELL];
 
 /* per-component normalized results */
 static int g_comp_nv[MAXCOMP];
-static int g_comp_gv[MAXCOMP][CAP_VARS];          /* local -> global var */
+static int g_comp_gv[MAXCOMP][CAP_VARS]; /* local -> global var */
 static long double g_comp_shat[MAXCOMP][CAP_VARS + 1];
 static long double g_comp_mhat[MAXCOMP][CAP_VARS][CAP_VARS + 1];
 static bool g_comp_fallback[MAXCOMP];
@@ -73,7 +77,8 @@ static int g_ec_con_lv[MAXCELL][8];
 static int g_ec_con_nlv[MAXCELL];
 static int g_ec_con_need[MAXCELL];
 static int g_ec_con_sum[MAXCELL];
-static int g_ec_con_un[MAXCELL]; /* unassigned vars remaining in the constraint */
+static int
+    g_ec_con_un[MAXCELL]; /* unassigned vars remaining in the constraint */
 static int g_ec_varcon[CAP_VARS][MAXVARCON];
 static int g_ec_varcon_n[CAP_VARS];
 static int g_ec_assign[CAP_VARS];
@@ -82,7 +87,8 @@ static long double g_ec_m[CAP_VARS][CAP_VARS + 1];
 static int g_ec_nodes;
 static bool g_ec_overflow;
 
-/* ---- helpers -------------------------------------------------------------- */
+/* ---- helpers --------------------------------------------------------------
+ */
 static long double binom_ld(int n, int k) {
   if (k < 0 || k > n) {
     return 0.0L;
@@ -125,7 +131,8 @@ static bool cell_covered(const struct Board *b, int x, int y) {
   return !b->cells[game_index(b, x, y)].revealed;
 }
 
-/* ---- step 1: build constraints + variables -------------------------------- */
+/* ---- step 1: build constraints + variables --------------------------------
+ */
 static void build_constraints(const struct Board *b) {
   g_nvar = 0;
   g_ncon = 0;
@@ -176,7 +183,8 @@ static void build_constraints(const struct Board *b) {
   }
 }
 
-/* ---- step 2: single-point deduction fixpoint ------------------------------ */
+/* ---- step 2: single-point deduction fixpoint ------------------------------
+ */
 static void deduce(void) {
   bool changed = true;
   while (changed) {
@@ -215,7 +223,8 @@ static void deduce(void) {
   }
 }
 
-/* ---- step 3: components over residual unknown vars ------------------------ */
+/* ---- step 3: components over residual unknown vars ------------------------
+ */
 static int build_components(void) {
   for (int v = 0; v < g_nvar; ++v) {
     g_parent[v] = v;
@@ -253,7 +262,8 @@ static int build_components(void) {
   return ncomp;
 }
 
-/* ---- step 4: per-component enumeration ------------------------------------ */
+/* ---- step 4: per-component enumeration ------------------------------------
+ */
 static void enum_dfs(int i, int total) {
   if (g_ec_overflow) {
     return;
@@ -432,7 +442,8 @@ static void fallback_component(int comp) {
   }
 }
 
-/* ---- step 5: global combination ------------------------------------------- */
+/* ---- step 5: global combination -------------------------------------------
+ */
 static void conv(const long double *a, int la, const long double *b, int lb,
                  long double *out, int *lout) {
   int n = la + lb - 1;
@@ -450,7 +461,8 @@ static void conv(const long double *a, int la, const long double *b, int lb,
   *lout = n;
 }
 
-/* ---- public entry --------------------------------------------------------- */
+/* ---- public entry ---------------------------------------------------------
+ */
 void solver_analyze(const struct Board *b, struct Analysis *out) {
   memset(out, 0, sizeof *out);
   out->best_x = -1;
@@ -564,8 +576,8 @@ void solver_analyze(const struct Board *b, struct Analysis *out) {
     g_suffix_len[nexact] = 1;
     for (int e = nexact - 1; e >= 0; --e) {
       int c = exact_idx[e];
-      conv(g_comp_shat[c], g_comp_nv[c] + 1, g_suffix[e + 1], g_suffix_len[e + 1],
-           g_suffix[e], &g_suffix_len[e]);
+      conv(g_comp_shat[c], g_comp_nv[c] + 1, g_suffix[e + 1],
+           g_suffix_len[e + 1], g_suffix[e], &g_suffix_len[e]);
     }
     /* zsum = sum_F Wall[F] * C(interior_n, r_eff - F) */
     for (int f = 0; f < g_prefix_len[nexact]; ++f) {
@@ -623,8 +635,8 @@ void solver_analyze(const struct Board *b, struct Analysis *out) {
       /* O_c = prefix[e] (x) suffix[e+1] */
       static long double oc[MAXFLEN];
       int oclen = 0;
-      conv(g_prefix[e], g_prefix_len[e], g_suffix[e + 1], g_suffix_len[e + 1], oc,
-           &oclen);
+      conv(g_prefix[e], g_prefix_len[e], g_suffix[e + 1], g_suffix_len[e + 1],
+           oc, &oclen);
       /* A_c[k] = sum_t oc[t] * C(interior_n, r_eff - k - t) */
       long double ac[CAP_VARS + 1];
       for (int k = 0; k <= g_comp_nv[c]; ++k) {

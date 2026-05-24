@@ -1,7 +1,6 @@
 /* overlay_test.cc — pure overlay-helper tests (Stream C). No SDL. */
-#include <string.h>
-
 #include <gtest/gtest.h>
+#include <string.h>
 
 #include "solver/overlay_geom.h"
 

@@ -180,8 +180,8 @@ SDL_AppResult app_init(struct AppState **out, int argc, char **argv) {
     g_rng_state = 0x1u;
   }
 
-  if (!SDL_CreateWindowAndRenderer("Minesweeper Solver", 320, 240, 0, &s->window,
-                                   &s->renderer)) {
+  if (!SDL_CreateWindowAndRenderer("Minesweeper Solver", 320, 240, 0,
+                                   &s->window, &s->renderer)) {
     fprintf(stderr, "CreateWindowAndRenderer failed: %s\n", SDL_GetError());
     free(s);
     return SDL_APP_FAILURE;

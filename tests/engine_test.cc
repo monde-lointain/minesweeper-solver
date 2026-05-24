@@ -4,12 +4,12 @@
  * mines over the covered cells consistent with the revealed numbers, and take
  * exact marginals. The engine's mine_prob must match for every covered cell.
  */
-#include <string.h>
+#include "solver/engine.h"
 
 #include <gtest/gtest.h>
+#include <string.h>
 
 #include "minesweeper/game.h"
-#include "solver/engine.h"
 
 namespace {
 
@@ -18,13 +18,14 @@ constexpr int kMaxC = 64; /* tests use boards up to 8x8 */
 struct TB {
   int w;
   int h;
-  bool mine[kMaxC];     /* ground-truth mine layout */
-  bool revealed[kMaxC]; /* which (non-mine) cells are revealed (numbered only) */
+  bool mine[kMaxC]; /* ground-truth mine layout */
+  bool
+      revealed[kMaxC]; /* which (non-mine) cells are revealed (numbered only) */
 };
 
 int ix(int w, int x, int y) { return y * w + x; }
 
-int true_adjacent(const TB& tb, int x, int y) {
+int true_adjacent(const TB &tb, int x, int y) {
   int n = 0;
   for (int dy = -1; dy <= 1; ++dy) {
     for (int dx = -1; dx <= 1; ++dx) {
@@ -38,7 +39,7 @@ int true_adjacent(const TB& tb, int x, int y) {
   return n;
 }
 
-void build_board(const TB& tb, Board* b) {
+void build_board(const TB &tb, Board *b) {
   memset(b, 0, sizeof *b);
   b->width = tb.w;
   b->height = tb.h;
@@ -49,7 +50,7 @@ void build_board(const TB& tb, Board* b) {
   for (int y = 0; y < tb.h; ++y) {
     for (int x = 0; x < tb.w; ++x) {
       int i = ix(tb.w, x, y);
-      Cell* c = &b->cells[i];
+      Cell *c = &b->cells[i];
       c->mine = tb.mine[i];
       if (tb.mine[i]) ++mines;
       if (tb.revealed[i]) {
@@ -64,7 +65,7 @@ void build_board(const TB& tb, Board* b) {
 }
 
 /* Brute-force exact marginals over covered cells. Returns #solutions. */
-long long brute(const TB& tb, double* prob) {
+long long brute(const TB &tb, double *prob) {
   int covered[kMaxC];
   int nc = 0;
   for (int y = 0; y < tb.h; ++y)
@@ -130,7 +131,7 @@ long long brute(const TB& tb, double* prob) {
 }
 
 /* Build, analyze, and assert engine == brute for every covered cell. */
-void expect_matches_brute(const TB& tb) {
+void expect_matches_brute(const TB &tb) {
   Board b;
   build_board(tb, &b);
   Analysis a;

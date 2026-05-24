@@ -1,7 +1,8 @@
 /* overlay_geom.h — pure overlay helpers. FROZEN CONTRACT (Stream A.0).
  *
  * NO SDL/ImGui — geometry, color, and eval-string formatting only, so they can
- * be unit-tested without a window. Orthodox C++: POD returned by value, pointers.
+ * be unit-tested without a window. Orthodox C++: POD returned by value,
+ * pointers.
  */
 #ifndef SOLVER_OVERLAY_GEOM_H
 #define SOLVER_OVERLAY_GEOM_H

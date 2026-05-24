@@ -1,5 +1,5 @@
-/* main.cc — SDL3 callback entry (Stream D, forked from the sibling). Defines the
- * SDL_MAIN_USE_CALLBACKS hooks and delegates to app.cc. */
+/* main.cc — SDL3 callback entry (Stream D, forked from the sibling). Defines
+ * the SDL_MAIN_USE_CALLBACKS hooks and delegates to app.cc. */
 #define SDL_MAIN_USE_CALLBACKS 1
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>

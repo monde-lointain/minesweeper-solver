@@ -11,10 +11,9 @@
  */
 #include "solver/overlay.h"
 
+#include <imgui.h>
 #include <math.h>
 #include <stdio.h>
-
-#include <imgui.h>
 
 #include "solver/overlay_geom.h"
 
@@ -40,8 +39,8 @@ void overlay_draw(const struct Analysis *a, const struct Board *b,
       if (!ca->is_frontier) {
         continue; /* interior cells stay plain */
       }
-      struct OverlayRect r = overlay_cell_rect(lay->grid_x, lay->grid_y, cell, x,
-                                               y);
+      struct OverlayRect r =
+          overlay_cell_rect(lay->grid_x, lay->grid_y, cell, x, y);
       struct OverlayColor col = overlay_prob_color(ca->mine_prob);
       ImVec2 p0((float)r.x, (float)r.y);
       ImVec2 p1((float)(r.x + r.w), (float)(r.y + r.h));
@@ -64,9 +63,8 @@ void overlay_draw(const struct Analysis *a, const struct Board *b,
   if (a->best_x >= 0 && a->best_y >= 0) {
     int bi = game_index(b, a->best_x, a->best_y);
     if (!b->cells[bi].revealed) {
-      struct OverlayRect r =
-          overlay_cell_rect(lay->grid_x, lay->grid_y, cell, a->best_x,
-                            a->best_y);
+      struct OverlayRect r = overlay_cell_rect(lay->grid_x, lay->grid_y, cell,
+                                               a->best_x, a->best_y);
       ImVec2 p0((float)(r.x + 1), (float)(r.y + 1));
       ImVec2 p1((float)((r.x + r.w) - 1), (float)((r.y + r.h) - 1));
       float thickness = (float)lay->scale + 1.0f;
