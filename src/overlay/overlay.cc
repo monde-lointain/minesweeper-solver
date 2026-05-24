@@ -23,7 +23,9 @@ void overlay_draw(const struct Analysis *a, const struct Board *b,
     return;
   }
 
-  ImDrawList *dl = ImGui::GetForegroundDrawList();
+  /* Background draw list: renders over the SDL board but UNDER ImGui windows
+   * and menus, so open dropdowns/dialogs correctly occlude the overlay. */
+  ImDrawList *dl = ImGui::GetBackgroundDrawList();
   int cell = BLOCK_PX * lay->scale;
   ImU32 text_col = IM_COL32(20, 20, 20, 255);
 
