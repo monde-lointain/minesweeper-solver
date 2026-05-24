@@ -37,7 +37,7 @@ static uint64_t g_pause_started_ms;
 
 /* (1) injected RNG so boards vary across launches. */
 static uint32_t g_rng_state;
-static uint32_t solver_rng(void *ctx, uint32_t n) {
+static uint32_t solver_rng(void* ctx, uint32_t n) {
   (void)ctx;
   uint32_t x = g_rng_state;
   x ^= x << 13;
@@ -48,12 +48,12 @@ static uint32_t solver_rng(void *ctx, uint32_t n) {
 }
 
 /* (3) recompute the cached analysis. */
-static void app_reanalyze(struct AppState *s) {
+static void app_reanalyze(struct AppState* s) {
   solver_analyze(&s->board, &s->analysis);
 }
 
 /* ---- difficulty geometry ----------------------------------------------- */
-static void app_dims(const struct Settings *s, int *w, int *h, int *mines) {
+static void app_dims(const struct Settings* s, int* w, int* h, int* mines) {
   switch (s->difficulty) {
     case DIFF_INTERMEDIATE:
       *w = 16;
@@ -79,13 +79,13 @@ static void app_dims(const struct Settings *s, int *w, int *h, int *mines) {
   }
 }
 
-static void app_compute_layout(struct AppState *s, struct Layout *lay) {
+static void app_compute_layout(struct AppState* s, struct Layout* lay) {
   int mbh = s->settings.menu_visible ? g_menu_bar_h : 0;
   render_compute_layout(&s->board, &s->settings, mbh, lay);
 }
 
 /* Resize the window to fit the current board/scale/menu state. */
-static void app_resize(struct AppState *s) {
+static void app_resize(struct AppState* s) {
   struct Layout lay;
   int cur_w = 0;
   int cur_h = 0;
@@ -96,7 +96,7 @@ static void app_resize(struct AppState *s) {
   }
 }
 
-static void app_new_game(struct AppState *s) {
+static void app_new_game(struct AppState* s) {
   int w = 0;
   int h = 0;
   int mines = 0;
@@ -119,7 +119,7 @@ static void app_new_game(struct AppState *s) {
 }
 
 /* Level index for best-times (only B/I/E qualify). -1 for Custom. */
-static int app_level_index(const struct Settings *s) {
+static int app_level_index(const struct Settings* s) {
   if (s->difficulty == DIFF_BEGINNER) {
     return 0;
   }
@@ -133,7 +133,7 @@ static int app_level_index(const struct Settings *s) {
 }
 
 /* React to a reveal/chord result: sounds, face, best-time prompt. */
-static void app_after_action(struct AppState *s, int result) {
+static void app_after_action(struct AppState* s, int result) {
   if (result == REVEAL_LOSS) {
     s->button_face = BTN_LOSE;
     s->timer_running = false;
@@ -151,7 +151,7 @@ static void app_after_action(struct AppState *s, int result) {
 }
 
 /* Start the timer on the first reveal of a game. */
-static void app_start_timer(struct AppState *s) {
+static void app_start_timer(struct AppState* s) {
   if (!s->timer_running && s->board.status == GAME_PLAYING) {
     s->timer_running = true;
     s->timer_start_ms = SDL_GetTicks();
@@ -160,10 +160,10 @@ static void app_start_timer(struct AppState *s) {
 }
 
 /* ---- init -------------------------------------------------------------- */
-SDL_AppResult app_init(struct AppState **out, int argc, char **argv) {
+SDL_AppResult app_init(struct AppState** out, int argc, char** argv) {
   (void)argc;
   (void)argv;
-  struct AppState *s = (struct AppState *)calloc(1, sizeof *s);
+  struct AppState* s = (struct AppState*)calloc(1, sizeof *s);
   if (s == NULL) {
     return SDL_APP_FAILURE;
   }
@@ -189,13 +189,13 @@ SDL_AppResult app_init(struct AppState **out, int argc, char **argv) {
   SDL_SetRenderVSync(s->renderer, 1);
 
   /* Resolve asset dir (next to exe) and a SEPARATE config path (2). */
-  const char *base = SDL_GetBasePath();
+  const char* base = SDL_GetBasePath();
   if (base != NULL) {
     snprintf(s->asset_dir, sizeof s->asset_dir, "%sassets", base);
   } else {
     snprintf(s->asset_dir, sizeof s->asset_dir, "assets");
   }
-  char *pref = SDL_GetPrefPath("", "winmine-solver");
+  char* pref = SDL_GetPrefPath("", "winmine-solver");
   if (pref != NULL) {
     snprintf(s->pref_path, sizeof s->pref_path, "%swinmine-solver.ini", pref);
     SDL_free(pref);
@@ -220,7 +220,7 @@ SDL_AppResult app_init(struct AppState **out, int argc, char **argv) {
   /* ImGui. */
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
-  ImGuiIO *io = &ImGui::GetIO();
+  ImGuiIO* io = &ImGui::GetIO();
   io->IniFilename = NULL; /* no imgui.ini */
   ImGui_ImplSDL3_InitForSDLRenderer(s->window, s->renderer);
   ImGui_ImplSDLRenderer3_Init(s->renderer);
@@ -241,11 +241,11 @@ SDL_AppResult app_init(struct AppState **out, int argc, char **argv) {
 }
 
 /* ---- input ------------------------------------------------------------- */
-static bool app_playable(const struct AppState *s) {
+static bool app_playable(const struct AppState* s) {
   return s->board.status == GAME_READY || s->board.status == GAME_PLAYING;
 }
 
-static void app_press_update(struct AppState *s, float px, float py) {
+static void app_press_update(struct AppState* s, float px, float py) {
   struct Layout lay;
   int cx = 0;
   int cy = 0;
@@ -259,7 +259,7 @@ static void app_press_update(struct AppState *s, float px, float py) {
   }
 }
 
-static void app_mouse_down(struct AppState *s, const SDL_Event *e) {
+static void app_mouse_down(struct AppState* s, const SDL_Event* e) {
   struct Layout lay;
   int cx = 0;
   int cy = 0;
@@ -303,7 +303,7 @@ static void app_mouse_down(struct AppState *s, const SDL_Event *e) {
   }
 }
 
-static void app_mouse_up(struct AppState *s, const SDL_Event *e) {
+static void app_mouse_up(struct AppState* s, const SDL_Event* e) {
   struct Layout lay;
   int cx = 0;
   int cy = 0;
@@ -360,7 +360,7 @@ static void app_mouse_up(struct AppState *s, const SDL_Event *e) {
   }
 }
 
-static void app_set_paused(struct AppState *s, bool paused) {
+static void app_set_paused(struct AppState* s, bool paused) {
   if (paused == s->paused) {
     return;
   }
@@ -372,9 +372,9 @@ static void app_set_paused(struct AppState *s, bool paused) {
   s->paused = paused;
 }
 
-SDL_AppResult app_event(struct AppState *s, SDL_Event *event) {
+SDL_AppResult app_event(struct AppState* s, SDL_Event* event) {
   ImGui_ImplSDL3_ProcessEvent(event);
-  ImGuiIO *io = &ImGui::GetIO();
+  ImGuiIO* io = &ImGui::GetIO();
 
   switch (event->type) {
     case SDL_EVENT_QUIT:
@@ -424,7 +424,7 @@ SDL_AppResult app_event(struct AppState *s, SDL_Event *event) {
 }
 
 /* ---- per-frame actions ------------------------------------------------- */
-static void app_apply_actions(struct AppState *s, const struct UiActions *a) {
+static void app_apply_actions(struct AppState* s, const struct UiActions* a) {
   if (a->quit) {
     g_want_quit = true;
   }
@@ -486,7 +486,7 @@ static void app_apply_actions(struct AppState *s, const struct UiActions *a) {
   }
 }
 
-SDL_AppResult app_iterate(struct AppState *s) {
+SDL_AppResult app_iterate(struct AppState* s) {
   struct Layout lay;
   struct UiActions actions;
   float menu_h;
@@ -540,7 +540,7 @@ SDL_AppResult app_iterate(struct AppState *s) {
   return g_want_quit ? SDL_APP_SUCCESS : SDL_APP_CONTINUE;
 }
 
-void app_quit(struct AppState *s) {
+void app_quit(struct AppState* s) {
   if (s == NULL) {
     return;
   }

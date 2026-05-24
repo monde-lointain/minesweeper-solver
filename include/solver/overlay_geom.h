@@ -34,6 +34,6 @@ struct OverlayRect overlay_cell_rect(int grid_x, int grid_y, int cell, int x,
 struct OverlayColor overlay_prob_color(double prob);
 
 /* Format the eval readout (e.g. "SAFE  best (4,2) 98%") into buf[0..n). */
-void overlay_eval_string(const struct Analysis *a, char *buf, int n);
+void overlay_eval_string(const struct Analysis* a, char* buf, int n);
 
 #endif /* SOLVER_OVERLAY_GEOM_H */

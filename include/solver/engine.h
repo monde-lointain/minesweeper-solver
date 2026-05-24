@@ -41,6 +41,6 @@ struct Analysis {
 };
 
 /* Analyze the visible board state into `out`. Pure function of `b`. */
-void solver_analyze(const struct Board *b, struct Analysis *out);
+void solver_analyze(const struct Board* b, struct Analysis* out);
 
 #endif /* SOLVER_ENGINE_H */

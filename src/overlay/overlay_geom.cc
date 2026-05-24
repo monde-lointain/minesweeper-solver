@@ -53,7 +53,7 @@ static int safety_pct(double mine_prob) {
   return (int)r;
 }
 
-void overlay_eval_string(const struct Analysis *a, char *buf, int n) {
+void overlay_eval_string(const struct Analysis* a, char* buf, int n) {
   if (n <= 0) {
     return;
   }

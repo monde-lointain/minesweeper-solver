@@ -14,7 +14,7 @@
 /* Draw the analysis overlay for the current `a`/`b` using `lay` geometry.
  * No-op when the game is won/lost. Call between render_frame and ImGui::Render.
  */
-void overlay_draw(const struct Analysis *a, const struct Board *b,
-                  const struct Layout *lay);
+void overlay_draw(const struct Analysis* a, const struct Board* b,
+                  const struct Layout* lay);
 
 #endif /* SOLVER_OVERLAY_H */

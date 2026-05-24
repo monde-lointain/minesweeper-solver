@@ -59,6 +59,11 @@ int  read_only(const Point &p);
 void take(Point &&p);             // rvalue ref
 ```
 
+> Note: this rule is about pointers-vs-references (semantics), not `*` whitespace.
+> Pointer alignment is whatever `.clang-format` produces — this project uses plain
+> `BasedOnStyle: Google` (left-aligned, e.g. `Point* p`). Don't hand-fight it; both
+> `Point *p` and `Point* p` are acceptable, and `make format` is the source of truth.
+
 #### C-style casts, not named casts
 
 ```cpp

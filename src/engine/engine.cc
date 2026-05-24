@@ -127,13 +127,13 @@ static void uf_union(int a, int b) {
   }
 }
 
-static bool cell_covered(const struct Board *b, int x, int y) {
+static bool cell_covered(const struct Board* b, int x, int y) {
   return !b->cells[game_index(b, x, y)].revealed;
 }
 
 /* ---- step 1: build constraints + variables --------------------------------
  */
-static void build_constraints(const struct Board *b) {
+static void build_constraints(const struct Board* b) {
   g_nvar = 0;
   g_ncon = 0;
   for (int i = 0; i < b->width * b->height; ++i) {
@@ -141,7 +141,7 @@ static void build_constraints(const struct Board *b) {
   }
   for (int y = 0; y < b->height; ++y) {
     for (int x = 0; x < b->width; ++x) {
-      const struct Cell *c = &b->cells[game_index(b, x, y)];
+      const struct Cell* c = &b->cells[game_index(b, x, y)];
       if (!c->revealed || c->mine || c->adjacent == 0) {
         continue;
       }
@@ -444,8 +444,8 @@ static void fallback_component(int comp) {
 
 /* ---- step 5: global combination -------------------------------------------
  */
-static void conv(const long double *a, int la, const long double *b, int lb,
-                 long double *out, int *lout) {
+static void conv(const long double* a, int la, const long double* b, int lb,
+                 long double* out, int* lout) {
   int n = la + lb - 1;
   for (int i = 0; i < n; ++i) {
     out[i] = 0.0L;
@@ -463,7 +463,7 @@ static void conv(const long double *a, int la, const long double *b, int lb,
 
 /* ---- public entry ---------------------------------------------------------
  */
-void solver_analyze(const struct Board *b, struct Analysis *out) {
+void solver_analyze(const struct Board* b, struct Analysis* out) {
   memset(out, 0, sizeof *out);
   out->best_x = -1;
   out->best_y = -1;

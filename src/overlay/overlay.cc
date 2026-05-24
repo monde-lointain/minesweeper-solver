@@ -17,15 +17,15 @@
 
 #include "solver/overlay_geom.h"
 
-void overlay_draw(const struct Analysis *a, const struct Board *b,
-                  const struct Layout *lay) {
+void overlay_draw(const struct Analysis* a, const struct Board* b,
+                  const struct Layout* lay) {
   if (b->status == GAME_WON || b->status == GAME_LOST) {
     return;
   }
 
   /* Background draw list: renders over the SDL board but UNDER ImGui windows
    * and menus, so open dropdowns/dialogs correctly occlude the overlay. */
-  ImDrawList *dl = ImGui::GetBackgroundDrawList();
+  ImDrawList* dl = ImGui::GetBackgroundDrawList();
   int cell = BLOCK_PX * lay->scale;
   ImU32 text_col = IM_COL32(20, 20, 20, 255);
 
@@ -33,11 +33,11 @@ void overlay_draw(const struct Analysis *a, const struct Board *b,
   for (int y = 0; y < b->height; ++y) {
     for (int x = 0; x < b->width; ++x) {
       int i = game_index(b, x, y);
-      const struct Cell *c = &b->cells[i];
+      const struct Cell* c = &b->cells[i];
       if (c->revealed || c->flag != FLAG_NONE) {
         continue;
       }
-      const struct CellAnalysis *ca = &a->cells[i];
+      const struct CellAnalysis* ca = &a->cells[i];
       if (!ca->is_frontier) {
         continue; /* interior cells stay plain */
       }
