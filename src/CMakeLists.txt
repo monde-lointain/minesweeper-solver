@@ -26,10 +26,10 @@ add_library(solver_lib STATIC
   overlay/overlay_geom.cc
 )
 target_include_directories(solver_lib PUBLIC
-  ${CMAKE_SOURCE_DIR}/include
+  ${PROJECT_SOURCE_DIR}/include
   ${MINESWEEPER_DIR}/include
 )
-set(SOLVER_WARNINGS -Wall -Wextra -Wpedantic -Werror)
+set(SOLVER_WARNINGS -Wall -Wextra -Wpedantic)
 target_compile_options(solver_lib PRIVATE ${SOLVER_WARNINGS})
 
 # Executable: forked app + overlay draw + entry, on top of the reused game.
@@ -39,11 +39,17 @@ add_executable(minesweeper_solver
   overlay/overlay.cc
 )
 target_include_directories(minesweeper_solver PRIVATE
-  ${CMAKE_SOURCE_DIR}/include
+  ${PROJECT_SOURCE_DIR}/include
   ${MINESWEEPER_DIR}/include
 )
 target_link_libraries(minesweeper_solver PRIVATE solver_lib minesweeper_reuse)
 target_compile_options(minesweeper_solver PRIVATE ${SOLVER_WARNINGS})
+
+# Warnings-as-errors as a toggleable property (default ON) rather than a baked-in
+# -Werror flag — devs/IDEs/CI can flip MINESWEEPER_SOLVER_WERROR or pass
+# --compile-no-warning-as-error. minesweeper_reuse stays warnings-only.
+set_target_properties(solver_lib minesweeper_solver PROPERTIES
+  COMPILE_WARNING_AS_ERROR ${MINESWEEPER_SOLVER_WERROR})
 
 # Orthodox C++ enforcement: our targets only (never deps, never reused code).
 if(orthodoxy_plugin_FOUND)

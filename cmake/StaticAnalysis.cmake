@@ -6,11 +6,11 @@
 # enforcement already happens at build time via the compiler).
 find_program(CLANG_TIDY_EXECUTABLE NAMES clang-tidy-22 clang-tidy)
 if(CLANG_TIDY_EXECUTABLE)
-  file(GLOB_RECURSE TIDY_SOURCE_FILES ${CMAKE_SOURCE_DIR}/src/*.cc)
+  file(GLOB_RECURSE TIDY_SOURCE_FILES ${PROJECT_SOURCE_DIR}/src/*.cc)
   add_custom_target(tidy
     COMMAND ${CLANG_TIDY_EXECUTABLE} --quiet ${TIDY_SOURCE_FILES} --
-      -std=gnu++20
-      -I${CMAKE_SOURCE_DIR}/include
+      -std=c++20
+      -I${PROJECT_SOURCE_DIR}/include
       -I${MINESWEEPER_DIR}/include
       -isystem ${sdl3_SOURCE_DIR}/include
       -isystem ${sdl3_BINARY_DIR}/include-revision
@@ -18,7 +18,7 @@ if(CLANG_TIDY_EXECUTABLE)
       -isystem ${imgui_SOURCE_DIR}
       -isystem ${imgui_SOURCE_DIR}/backends
       -isystem ${mini_SOURCE_DIR}/src
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
     COMMENT "Running clang-tidy"
   )
 endif()

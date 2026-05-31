@@ -17,6 +17,7 @@ compile_commands.json
 CTestTestfile.cmake
 cmake_install.cmake
 install_manifest.txt
+CMakeUserPresets.json
 
 # IDE files
 .vscode/

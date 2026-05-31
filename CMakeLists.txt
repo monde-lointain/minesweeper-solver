@@ -1,24 +1,20 @@
 cmake_minimum_required(VERSION 3.28)
 
-# Default to clang-22 so the Orthodoxy plugin (built for clang major 22) engages.
-# The system default clang is 18, under which enforcement silently turns off.
-# Override with -DCMAKE_CXX_COMPILER=... on the command line.
-if(NOT DEFINED CMAKE_CXX_COMPILER)
-  set(CMAKE_CXX_COMPILER clang++-22)
-endif()
-if(NOT DEFINED CMAKE_C_COMPILER)
-  set(CMAKE_C_COMPILER clang-22)
-endif()
-
+# Compiler choice (clang-22, required for the Orthodoxy plugin — built for clang
+# major 22) lives in CMakePresets.json (`cmake --preset dev`) and the Makefile,
+# NOT here. Building with a stock clang silently disables enforcement;
+# Orthodoxy.cmake reports a STATUS line when the plugin is not found.
 project(minesweeper_solver VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Build options.
 option(BUILD_TESTS "Build unit tests" ON)
 option(ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(MINESWEEPER_SOLVER_WERROR "Treat warnings as errors for project targets" ON)
 
 # Location of the sibling Minesweeper sources we reuse (game/render/assets/ui/
 # config/audio + the original BMP/WAV assets).
@@ -45,7 +41,7 @@ include(cmake/Formatting.cmake)
 
 add_subdirectory(src)
 
-if(BUILD_TESTS)
+if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
 endif()
