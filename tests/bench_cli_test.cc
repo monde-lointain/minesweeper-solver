@@ -21,9 +21,9 @@ TEST(BenchCli, Defaults) {
 }
 
 TEST(BenchCli, PresetIntermediateAndScalarFlags) {
-  char* av[] = {(char*)"bench", (char*)"--difficulty", (char*)"intermediate",
-                (char*)"--games", (char*)"500",        (char*)"--seed",
-                (char*)"7",       (char*)"--threads",  (char*)"3"};
+  char* av[] = {(char*)"bench",   (char*)"--difficulty", (char*)"intermediate",
+                (char*)"--games", (char*)"500",          (char*)"--seed",
+                (char*)"7",       (char*)"--threads",    (char*)"3"};
   struct BenchConfig c;
   const char* e = NULL;
   ASSERT_EQ(bench_parse_args(9, av, &c, &e), 0);
@@ -37,8 +37,8 @@ TEST(BenchCli, PresetIntermediateAndScalarFlags) {
 }
 
 TEST(BenchCli, CustomDimsClampToEnvelope) {
-  char* av[] = {(char*)"bench",  (char*)"--width", (char*)"99",
-                (char*)"--height", (char*)"99",    (char*)"--mines",
+  char* av[] = {(char*)"bench",    (char*)"--width", (char*)"99",
+                (char*)"--height", (char*)"99",      (char*)"--mines",
                 (char*)"100"};
   struct BenchConfig c;
   const char* e = NULL;
@@ -50,9 +50,8 @@ TEST(BenchCli, CustomDimsClampToEnvelope) {
 }
 
 TEST(BenchCli, CustomMinesOutOfRangeRejected) {
-  char* av[] = {(char*)"bench",   (char*)"--width", (char*)"9",
-                (char*)"--height", (char*)"9",      (char*)"--mines",
-                (char*)"81"}; /* 81 >= 9*9 */
+  char* av[] = {(char*)"bench", (char*)"--width", (char*)"9", (char*)"--height",
+                (char*)"9",     (char*)"--mines", (char*)"81"}; /* 81 >= 9*9 */
   struct BenchConfig c;
   const char* e = NULL;
   EXPECT_EQ(bench_parse_args(7, av, &c, &e), -1);

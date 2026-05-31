@@ -1,6 +1,6 @@
 /* bench_runner_test.cc — Stream B.3.
- * Determinism (same seed -> same aggregate), thread-invariance (1 vs 4 threads),
- * exact game count, and the forced-safe-death correctness invariant.
+ * Determinism (same seed -> same aggregate), thread-invariance (1 vs 4
+ * threads), exact game count, and the forced-safe-death correctness invariant.
  */
 #include <gtest/gtest.h>
 #include <string.h>

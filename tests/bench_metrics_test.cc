@@ -44,7 +44,8 @@ TEST(BenchMetrics, DecisionAccounting) {
   metrics_zero(&m);
   metrics_record_decision(&m, EVAL_START, 0.2, false, false);
   metrics_record_decision(&m, EVAL_SAFE, 0.0, false, true);
-  metrics_record_decision(&m, EVAL_SAFE, 0.0, true, true); /* forced-safe death */
+  metrics_record_decision(&m, EVAL_SAFE, 0.0, true,
+                          true); /* forced-safe death */
 
   EXPECT_EQ(m.start_moves, 1u);
   EXPECT_EQ(m.safe_moves, 2u);
@@ -93,10 +94,11 @@ TEST(BenchMetrics, MergeIsCommutative) {
   EXPECT_EQ(ab.wins, ba.wins);
   EXPECT_EQ(ab.guess_moves, ba.guess_moves);
   EXPECT_EQ(ab.guesses_fatal, ba.guesses_fatal);
-  EXPECT_EQ(ab.cal_n[6], ba.cal_n[6]);  /* 0.30 -> bucket 6 */
+  EXPECT_EQ(ab.cal_n[6], ba.cal_n[6]);   /* 0.30 -> bucket 6 */
   EXPECT_EQ(ab.cal_n[16], ba.cal_n[16]); /* 0.80 -> bucket 16 */
   EXPECT_EQ(ab.analyze_ns_sum, ba.analyze_ns_sum);
   EXPECT_EQ(ab.analyze_ns_max, ba.analyze_ns_max);
   EXPECT_EQ(ab.analyze_ns_max, 900u);
-  EXPECT_NEAR((double)ab.loss_progress_sum, (double)ba.loss_progress_sum, 1e-12);
+  EXPECT_NEAR((double)ab.loss_progress_sum, (double)ba.loss_progress_sum,
+              1e-12);
 }

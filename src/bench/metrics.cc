@@ -1,7 +1,7 @@
 /* metrics.cc — benchmark metrics accumulation + reporting (Stream B.2).
  *
- * All fields are commutative reductions (sum / max), so per-worker Metrics merge
- * to the same aggregate independent of thread count or order.
+ * All fields are commutative reductions (sum / max), so per-worker Metrics
+ * merge to the same aggregate independent of thread count or order.
  */
 #include "metrics.h"
 
@@ -125,11 +125,12 @@ void metrics_print(const struct Metrics* m, const char* label, double wall_sec,
                           ? (double)m->guesses_survived / (double)m->guess_moves
                           : 0.0;
   double mean_loss_depth =
-      (losses != 0) ? (double)(m->loss_progress_sum / (long double)losses) : 0.0;
-  double mean_us = (m->analyze_calls != 0)
-                       ? (double)m->analyze_ns_sum / (double)m->analyze_calls /
-                             1000.0
-                       : 0.0;
+      (losses != 0) ? (double)(m->loss_progress_sum / (long double)losses)
+                    : 0.0;
+  double mean_us =
+      (m->analyze_calls != 0)
+          ? (double)m->analyze_ns_sum / (double)m->analyze_calls / 1000.0
+          : 0.0;
   double max_us = (double)m->analyze_ns_max / 1000.0;
   double gps = (wall_sec > 0.0) ? (double)games / wall_sec : 0.0;
 
@@ -141,7 +142,8 @@ void metrics_print(const struct Metrics* m, const char* label, double wall_sec,
          (unsigned long long)m->start_moves, (unsigned long long)m->safe_moves,
          (unsigned long long)m->guess_moves);
   printf("forced-guess     %.4f of deduced moves\n", guess_frac);
-  printf("guess risk(mean) %.4f   guess survival %.4f\n", mean_risk, guess_surv);
+  printf("guess risk(mean) %.4f   guess survival %.4f\n", mean_risk,
+         guess_surv);
   printf("deaths@forced-safe %llu  (MUST be 0)\n",
          (unsigned long long)m->deaths_on_forced_safe);
   printf("mean loss depth  %.4f revealed-fraction\n", mean_loss_depth);

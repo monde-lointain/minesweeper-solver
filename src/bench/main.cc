@@ -1,6 +1,6 @@
 /* main.cc — benchmark CLI entry (Stream B.4).
- * Parse -> run -> print. Exit nonzero if a forced-safe death occurred (an engine
- * correctness defect the harness is designed to catch).
+ * Parse -> run -> print. Exit nonzero if a forced-safe death occurred (an
+ * engine correctness defect the harness is designed to catch).
  */
 #include <stdio.h>
 #include <time.h>

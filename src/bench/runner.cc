@@ -6,8 +6,9 @@
  * on the hot path. Slots merge commutatively after join, so the aggregate is
  * identical for any thread count.
  *
- * Orthodox C++ with a sanctioned, file-local exception: std::thread / std::atomic
- * for the worker pool (CLAUDE.md threading carve-out). No other Modern C++.
+ * Orthodox C++ with a sanctioned, file-local exception: std::thread /
+ * std::atomic for the worker pool (CLAUDE.md threading carve-out). No other
+ * Modern C++.
  */
 #include "runner.h"
 
