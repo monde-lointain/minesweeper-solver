@@ -93,6 +93,12 @@ struct CombineDP {
   int suffix_len[MAXCOMP + 1];
   int exact_idx[MAXCOMP];  /* compacted list of exact (non-fallback) comps */
   long double oc[MAXFLEN]; /* per-component leave-one-out convolution buffer */
+  long double
+      fbdist[MAXFLEN]; /* mine-count dist of fallback comps (Poisson-bin) */
+  int fbdist_len;
+  long double
+      wall[MAXFLEN]; /* exact prefix (x) fbdist: full frontier-mine dist */
+  long double oc2[MAXFLEN]; /* leave-one-out (x) fbdist */
 };
 
 /* enumeration scratch (one component at a time) */
@@ -584,34 +590,68 @@ static void enumerate_all(struct SolverScratch* s, int ncomp, bool* exact_ok,
       fallback_component(s, c);
     }
   }
-  /* total unknown frontier vars across EXACT components must fit MAXFLEN. */
+  /* The combine DP now convolves BOTH exact-component distributions and the
+   * fallback components' Poisson-binomial (fbdist), so the total frontier-var
+   * count must fit MAXFLEN. fallback_expected is still the rounded point mean
+   * used only by the crude no-DP interior fallback. */
   int exact_unknown = 0;
+  int fb_unknown = 0;
   for (int c = 0; c < ncomp; ++c) {
     if (!s->res.fallback[c]) {
       exact_unknown += s->res.nv[c];
     } else {
+      fb_unknown += s->res.nv[c];
       for (int lv = 0; lv < s->res.nv[c]; ++lv) {
         *fallback_expected += s->res.fb_p[c][lv];
       }
     }
   }
-  if (exact_unknown >= MAXFLEN) {
+  if (exact_unknown + fb_unknown >= MAXFLEN) {
     *exact_ok = false;
   }
 }
 
-/* Combine exact components + interior under the global mine count:
- * prefix/suffix convolution DP -> ctx->{r_eff, nexact, zsum, interior_prob}. */
+/* Build the mine-count distribution of all (modeled) fallback-component vars as
+ * a Poisson-binomial over their naive per-var probabilities. Identity ([1.0])
+ * when there are no fallback components. Result in s->dp.fbdist[0..fbdist_len).
+ */
+static void build_fbdist(struct SolverScratch* s, int ncomp) {
+  s->dp.fbdist[0] = 1.0L;
+  s->dp.fbdist_len = 1;
+  for (int c = 0; c < ncomp; ++c) {
+    if (!s->res.fallback[c]) {
+      continue;
+    }
+    for (int lv = 0; lv < s->res.nv[c]; ++lv) {
+      long double bern[2];
+      bern[0] = 1.0L - s->res.fb_p[c][lv];
+      bern[1] = s->res.fb_p[c][lv];
+      int outlen = 0;
+      conv(s->dp.fbdist, s->dp.fbdist_len, bern, 2, s->dp.wall, &outlen);
+      for (int i = 0; i < outlen; ++i) {
+        s->dp.fbdist[i] = s->dp.wall[i];
+      }
+      s->dp.fbdist_len = outlen;
+    }
+  }
+}
+
+/* Combine exact components + fallback distribution + interior under the global
+ * mine count: prefix/suffix convolution DP -> ctx->{r_eff, nexact, zsum,
+ * interior_prob}. The exact DP shares the FULL remaining budget with the
+ * interior; fallback components enter as a distribution (fbdist), not a rounded
+ * mean, so the budget is never collapsed (which previously forced spurious
+ * 0/1). Only the crude no-DP interior fallback keeps the point estimate. */
 static void compute_interior_prob(const struct Board* b,
                                   struct SolverScratch* s,
                                   struct AnalyzeCtx* ctx,
                                   long double fallback_expected) {
   int rem_mines = b->mines - ctx->known_mines;
-  /* remove fallback components' expected mines from the budget the exact DP +
-   * interior share. */
-  int r_eff = rem_mines - (int)llroundl(fallback_expected);
-  r_eff = (r_eff < 0) ? 0 : r_eff;
-  ctx->r_eff = r_eff;
+  int r_eff_approx = rem_mines - (int)llroundl(fallback_expected);
+  r_eff_approx = (r_eff_approx < 0) ? 0 : r_eff_approx;
+  /* exact DP: full budget (fbdist carries the fallback mines distributionally);
+   * no-DP fallback: keep the rounded point estimate. */
+  ctx->r_eff = ctx->exact_ok ? rem_mines : r_eff_approx;
 
   /* Build prefix/suffix convolutions over EXACT components only. */
   int nexact = 0;
@@ -627,6 +667,7 @@ static void compute_interior_prob(const struct Board* b,
   long double zsum = 0.0L;
   long double interior_num = 0.0L;
   if (ctx->exact_ok) {
+    build_fbdist(s, ctx->ncomp);
     s->dp.prefix[0][0] = 1.0L;
     s->dp.prefix_len[0] = 1;
     for (int e = 0; e < nexact; ++e) {
@@ -641,15 +682,19 @@ static void compute_interior_prob(const struct Board* b,
       conv(s->res.shat[c], s->res.nv[c] + 1, s->dp.suffix[e + 1],
            s->dp.suffix_len[e + 1], s->dp.suffix[e], &s->dp.suffix_len[e]);
     }
+    /* Wall = (exact prefix) (x) fbdist = full frontier-mine distribution. */
+    int wall_len = 0;
+    conv(s->dp.prefix[nexact], s->dp.prefix_len[nexact], s->dp.fbdist,
+         s->dp.fbdist_len, s->dp.wall, &wall_len);
     /* zsum = sum_F Wall[F] * C(interior_n, r_eff - F) */
-    for (int f = 0; f < s->dp.prefix_len[nexact]; ++f) {
-      long double w = s->dp.prefix[nexact][f];
+    for (int f = 0; f < wall_len; ++f) {
+      long double w = s->dp.wall[f];
       if (w == 0.0L) {
         continue;
       }
-      long double bcoef = binom_ld(ctx->interior_n, r_eff - f);
+      long double bcoef = binom_ld(ctx->interior_n, ctx->r_eff - f);
       zsum += w * bcoef;
-      interior_num += w * bcoef * (long double)(r_eff - f);
+      interior_num += w * bcoef * (long double)(ctx->r_eff - f);
     }
   }
   ctx->zsum = zsum;
@@ -658,9 +703,9 @@ static void compute_interior_prob(const struct Board* b,
   if (ctx->exact_ok && zsum > 0.0L && ctx->interior_n > 0) {
     interior_prob = interior_num / (zsum * (long double)ctx->interior_n);
   } else if (ctx->interior_n > 0) {
-    /* fallback: uniform remaining density */
-    interior_prob =
-        solver_clamp01((long double)r_eff / (long double)ctx->interior_n);
+    /* crude no-DP path: uniform remaining density (point estimate). */
+    interior_prob = solver_clamp01((long double)r_eff_approx /
+                                   (long double)ctx->interior_n);
   }
   ctx->interior_prob = interior_prob;
 }
@@ -702,15 +747,19 @@ static void write_cell_probs(const struct Board* b, struct Analysis* out,
       int oclen = 0;
       conv(s->dp.prefix[e], s->dp.prefix_len[e], s->dp.suffix[e + 1],
            s->dp.suffix_len[e + 1], s->dp.oc, &oclen);
-      /* A_c[k] = sum_t oc[t] * C(interior_n, r_eff - k - t) */
+      /* fold in the fallback distribution so c's complement covers ALL other
+       * frontier mines (other exact comps + fallback comps). */
+      int oc2len = 0;
+      conv(s->dp.oc, oclen, s->dp.fbdist, s->dp.fbdist_len, s->dp.oc2, &oc2len);
+      /* A_c[k] = sum_t oc2[t] * C(interior_n, r_eff - k - t) */
       long double ac[CAP_VARS + 1];
       for (int k = 0; k <= s->res.nv[c]; ++k) {
         long double sm = 0.0L;
-        for (int t = 0; t < oclen; ++t) {
-          if (s->dp.oc[t] == 0.0L) {
+        for (int t = 0; t < oc2len; ++t) {
+          if (s->dp.oc2[t] == 0.0L) {
             continue;
           }
-          sm += s->dp.oc[t] * binom_ld(ctx->interior_n, ctx->r_eff - k - t);
+          sm += s->dp.oc2[t] * binom_ld(ctx->interior_n, ctx->r_eff - k - t);
         }
         ac[k] = sm;
       }

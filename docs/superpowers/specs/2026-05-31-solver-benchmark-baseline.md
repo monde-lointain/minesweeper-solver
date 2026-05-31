@@ -64,8 +64,19 @@ budget and lets the exact DP / uniform-interior formula emit `mine_prob` exactly
 0/1 for undetermined cells. Fix A (`write_cell_probs`): in any analysis that used
 approximation, clamp non-deduced cells away from {0,1} so approximations can never
 read as proofs. Result: `deaths@forced-safe` → 0; Expert winrate unchanged within
-CI (0.282). The regression test is now enabled. The deeper accuracy fix
-(distributional fallback, "Fix B") remains the winrate lever.
+CI (0.282). The regression test is now enabled.
+
+**UPDATE (Fix B, minimal):** removed the rounded point estimate entirely in the
+`exact_ok` DP path. Each fallback component now enters the global convolution DP
+as its mine-count *distribution* (Poisson-binomial of the naive per-var `fb_p`,
+`build_fbdist`), with the full budget `r_eff = rem_mines` — so the interior and
+exact-component marginals reflect true uncertainty instead of a collapsed mean.
+Identity when nothing falls back (exact-path oracle `engine_test` still passes at
+1e-6). Result over Expert 50k: **winrate 0.283 → 0.289**, **guess survival
+0.837 → 0.855** (chosen guesses are genuinely safer — better-ordered
+probabilities), `deaths@forced-safe` still 0. Residual mid-bucket calibration
+drift remains (it comes from the naive per-var `fb_p`, untouched by minimal B);
+improving those marginals is "full B" / future work.
 
 ## Performance
 
