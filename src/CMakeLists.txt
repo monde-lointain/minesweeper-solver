@@ -9,6 +9,7 @@ add_library(minesweeper_reuse STATIC
   ${MINESWEEPER_DIR}/src/ui/ui.cc
   ${MINESWEEPER_DIR}/src/config/config.cc
   ${MINESWEEPER_DIR}/src/audio/audio.cc
+  ${MINESWEEPER_DIR}/src/util/util.cc
 )
 target_include_directories(minesweeper_reuse PUBLIC ${MINESWEEPER_DIR}/include)
 target_link_libraries(minesweeper_reuse PUBLIC

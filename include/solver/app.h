@@ -11,6 +11,7 @@
 #include <stdint.h>
 
 #include "minesweeper/assets.h"
+#include "minesweeper/audio.h"
 #include "minesweeper/game.h"
 #include "minesweeper/render.h"
 #include "minesweeper/types.h"
@@ -21,6 +22,7 @@ struct AppState {
   SDL_Window *window;
   SDL_Renderer *renderer;
   struct Assets assets;
+  struct Audio audio;
   struct Board board;
   struct Settings settings;
 
@@ -37,10 +39,7 @@ struct AppState {
   bool paused; /* minimized / unfocused */
 
   int pending_name_level; /* level awaiting Enter-Name, -1 if none */
-  bool show_custom;
-  bool show_best;
-  bool show_about;
-  bool show_name;
+  struct DialogState dialogs;
 
   char asset_dir[1024];
   char pref_path[1024];

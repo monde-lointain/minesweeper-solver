@@ -101,7 +101,8 @@ static void app_new_game(struct AppState* s) {
   int h = 0;
   int mines = 0;
   app_dims(&s->settings, &w, &h, &mines);
-  game_reset(&s->board, w, h, mines, solver_rng, NULL); /* (1) */
+  struct Rng rng = {solver_rng, NULL, 0}; /* (1) */
+  game_reset(&s->board, w, h, mines, &rng);
   s->button_face = BTN_HAPPY;
   s->press_x = -1;
   s->press_y = -1;
@@ -137,15 +138,15 @@ static void app_after_action(struct AppState* s, int result) {
   if (result == REVEAL_LOSS) {
     s->button_face = BTN_LOSE;
     s->timer_running = false;
-    audio_play_explode(s->settings.sound);
+    audio_play_explode(&s->audio, s->settings.sound);
   } else if (result == REVEAL_WIN) {
     s->button_face = BTN_WIN;
     s->timer_running = false;
-    audio_play_win(s->settings.sound);
+    audio_play_win(&s->audio, s->settings.sound);
     int lvl = app_level_index(&s->settings);
     if (lvl >= 0 && s->elapsed_sec < s->settings.best_time[lvl]) {
       s->pending_name_level = lvl;
-      s->show_name = true;
+      s->dialogs.show_name = true;
     }
   }
 }
@@ -215,7 +216,7 @@ SDL_AppResult app_init(struct AppState** out, int argc, char** argv) {
   assets_set_color(&s->assets, s->settings.color);
   assets_set_window_icon(s->window, s->asset_dir);
 
-  audio_init(s->asset_dir);
+  audio_init(&s->audio, s->asset_dir);
 
   /* ImGui. */
   IMGUI_CHECKVERSION();
@@ -436,13 +437,13 @@ static void app_apply_actions(struct AppState* s, const struct UiActions* a) {
     app_new_game(s);
   }
   if (a->open_custom) {
-    s->show_custom = true;
+    s->dialogs.show_custom = true;
   }
   if (a->open_best) {
-    s->show_best = true;
+    s->dialogs.show_best = true;
   }
   if (a->open_about) {
-    s->show_about = true;
+    s->dialogs.show_about = true;
   }
   if (a->toggle_marks) {
     s->settings.marks = !s->settings.marks;
@@ -506,8 +507,7 @@ SDL_AppResult app_iterate(struct AppState* s) {
   ui_actions_clear(&actions);
   menu_h = ui_menu_bar(&s->settings, &actions);
   g_menu_bar_h = (int)menu_h;
-  ui_dialogs(&s->settings, &actions, &s->show_custom, &s->show_best,
-             &s->show_about, &s->show_name, s->pending_name_level);
+  ui_dialogs(&s->settings, &actions, &s->dialogs);
   app_apply_actions(s, &actions);
 
   /* Keep window sized to the (possibly changed) menu-bar height. */
@@ -556,7 +556,7 @@ void app_quit(struct AppState* s) {
   s->settings.window_y = wy;
   config_save(&s->settings, s->pref_path);
 
-  audio_shutdown();
+  audio_shutdown(&s->audio);
   ImGui_ImplSDLRenderer3_Shutdown();
   ImGui_ImplSDL3_Shutdown();
   ImGui::DestroyContext();
