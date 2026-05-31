@@ -40,18 +40,18 @@ void reveal(struct Board* b, int x, int y) {
   b->cells[game_index(b, x, y)].revealed = true;
 }
 
-int cheb_to_revealed(const struct Board* b, int x, int y) {
-  int best = 999;
-  for (int ry = 0; ry < b->height; ++ry) {
-    for (int rx = 0; rx < b->width; ++rx) {
-      if (!b->cells[game_index(b, rx, ry)].revealed) continue;
-      int ax = rx > x ? rx - x : x - rx;
-      int ay = ry > y ? ry - y : y - ry;
-      int d = ax > ay ? ax : ay;
-      if (d < best) best = d;
+int revealed_neighbors(const struct Board* b, int x, int y) {
+  int n = 0;
+  for (int dy = -1; dy <= 1; ++dy) {
+    for (int dx = -1; dx <= 1; ++dx) {
+      if (dx == 0 && dy == 0) continue;
+      int nx = x + dx;
+      int ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= b->width || ny >= b->height) continue;
+      if (b->cells[game_index(b, nx, ny)].revealed) ++n;
     }
   }
-  return best;
+  return n;
 }
 
 }  // namespace
@@ -84,14 +84,16 @@ TEST(PolicyHeuristic, CascadeDominanceWins) {
   EXPECT_EQ(mv.y, 1);
 }
 
-/* With uniform risk everywhere, the policy reveals into open space (far from
- * the solved cluster) rather than hugging the frontier. */
-TEST(PolicyHeuristic, OpenFarPreferred) {
+/* With uniform risk everywhere, the policy reveals a well-connected frontier
+ * cell (adjacent to the solved cluster, so resolving it tightens constraints),
+ * NOT an isolated cell far in open space. */
+TEST(PolicyHeuristic, FrontierConnectivityPreferred) {
   struct Board b;
   mkboard(&b, 5, 5);
   reveal(&b, 0, 0);
   reveal(&b, 1, 0);
   reveal(&b, 0, 1);
+  reveal(&b, 1, 1);
   struct Analysis a;
   mkanalysis(&a, &b, 0.2); /* all covered cells equal risk */
   a.best_x = 2;
@@ -99,7 +101,7 @@ TEST(PolicyHeuristic, OpenFarPreferred) {
 
   struct Move mv;
   ASSERT_EQ(policy_heuristic_select(&b, &a, &mv), 0);
-  EXPECT_GE(cheb_to_revealed(&b, mv.x, mv.y), 3); /* deep into blank space */
+  EXPECT_GE(revealed_neighbors(&b, mv.x, mv.y), 1); /* hugs the frontier */
   EXPECT_FALSE(b.cells[game_index(&b, mv.x, mv.y)].revealed);
 }
 

@@ -18,12 +18,19 @@
 #include "policy_tuning.h"
 #include "solver/engine.h"
 
-/* Covered-neighbor count of (x,y); multiplies *cascade by (1 - P(mine)) for
- * each covered neighbor (cascade is P(this cell reveals a 0). */
-static int neighbor_progress(const struct Board* b, const struct Analysis* a,
-                             int x, int y, double* cascade) {
-  double casc = 1.0;
-  int cnt = 0;
+/* Progress proxy for revealing (x,y) if it turns out safe:
+ *   - connectivity: number of revealed (numbered) neighbors. Resolving a cell
+ *     that participates in many constraints tightens the most of them, so it is
+ *     the likeliest to force new deductions (the paper's info-gain idea,
+ * cheaply approximated). Interior cells (connectivity 0) make little progress.
+ *   - cascade: P(cell reveals 0) ~= prod over covered neighbors of (1-P(mine)),
+ *     opening a fresh region.
+ * Deliberately NO open-far/interior term — it regressed (isolated reveals don't
+ * constrain the board, so the game needs more guesses). */
+static double progress_score(const struct Board* b, const struct Analysis* a,
+                             int x, int y) {
+  double cascade = 1.0;
+  int connect = 0;
   for (int dy = -1; dy <= 1; ++dy) {
     for (int dx = -1; dx <= 1; ++dx) {
       if (dx == 0 && dy == 0) {
@@ -36,44 +43,13 @@ static int neighbor_progress(const struct Board* b, const struct Analysis* a,
       }
       int idx = game_index(b, nx, ny);
       if (b->cells[idx].revealed) {
-        continue;
-      }
-      ++cnt;
-      casc *= (1.0 - a->cells[idx].mine_prob);
-    }
-  }
-  *cascade = casc;
-  return cnt;
-}
-
-/* Chebyshev distance from (x,y) to the nearest revealed cell, capped at 8.
- * Larger == "further into blank space" == more information if it cascades. */
-static int dist_to_revealed(const struct Board* b, int x, int y) {
-  int best = 8;
-  for (int ry = 0; ry < b->height; ++ry) {
-    for (int rx = 0; rx < b->width; ++rx) {
-      if (!b->cells[game_index(b, rx, ry)].revealed) {
-        continue;
-      }
-      int ax = rx > x ? rx - x : x - rx;
-      int ay = ry > y ? ry - y : y - ry;
-      int d = ax > ay ? ax : ay;
-      if (d < best) {
-        best = d;
+        ++connect; /* a numbered neighbor -> a constraint this cell is in */
+      } else {
+        cascade *= (1.0 - a->cells[idx].mine_prob);
       }
     }
   }
-  return best;
-}
-
-static double progress_score(const struct Board* b, const struct Analysis* a,
-                             int x, int y) {
-  double cascade = 1.0;
-  int cnt = neighbor_progress(b, a, x, y, &cascade);
-  double opening = (double)cnt / 8.0;
-  double openfar = (double)dist_to_revealed(b, x, y) / 8.0;
-  return HEUR_W_CASCADE * cascade + HEUR_W_OPENING * opening +
-         HEUR_W_INTERIOR * openfar;
+  return HEUR_W_CONNECT * ((double)connect / 8.0) + HEUR_W_CASCADE * cascade;
 }
 
 int policy_heuristic_select(const struct Board* b, const struct Analysis* a,

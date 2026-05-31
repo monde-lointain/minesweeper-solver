@@ -1,5 +1,42 @@
 # Solver Benchmark — Phase-1 Baseline
 
+> **UPDATE (Gaussian-reduction accuracy work, branch `feat/engine-accuracy-gaussian`).**
+> Dense frontier components (`nv>24`) are now solved exactly by Gaussian
+> elimination instead of the naive fallback — see
+> `2026-05-31-engine-accuracy-gaussian-reduction-design.md`. New baseline-policy
+> winrates (same seed base, NEW vs the original engine below):
+>
+> | Difficulty | Games | OLD | NEW | 95% Wilson (NEW) | deaths |
+> |---|---|---|---|---|---|
+> | Beginner | 10k | 0.889 | **0.902** | [0.896, 0.907] | 0 |
+> | Intermediate | 10k | 0.718 | **0.727** | [0.718, 0.736] | 0 |
+> | Expert | 50k | 0.283/0.290 | **0.380** | [0.376, 0.385] | 0 |
+>
+> Expert forced-guess 0.040→0.027 (more cells deduced exactly). Cost: analyze
+> 110µs→~650µs mean (rational RREF; `REDUCED_NODE_BUDGET=30000` bounds the tail
+> ~0.5s).
+>
+> **Why 0.38 and not the paper's (Liu et al. 2022) 0.456?** 0.38 sits squarely in
+> the published strong-solver range (~38–42%); 0.456 is at the high end, so some of
+> the gap is likely their testbed/measurement. The solver-side gap is **guessing,
+> not exactness**:
+> - *Exactness is not the lever.* Raising the exact-solve budget generously
+>   (`FREE_CAP` 28→40, node budget 30k→300k) moved Expert only 0.383→0.385 (+0.2pp,
+>   within CI) while blowing max analyze time to 4.2s. Residual fallback on
+>   high-entropy frontiers contributes ~nothing — exact probabilities there don't
+>   make the guess easier.
+> - *Guessing is the lever, but cheap tie-breaks give a little.* `POLICY_HEURISTIC`'s
+>   first design (broad open-far/interior bias) **regressed** Expert (old 0.290→0.241,
+>   new 0.383→0.363 — isolated reveals → more guesses). Re-scoped to reward
+>   **frontier connectivity** (resolve cells in many constraints) + cascade, with a
+>   small risk band (`HEUR_BAND=0.02`), it now beats baseline consistently — 30k
+>   paired (same boards): **0.383 → 0.390 (+0.75pp)**, deaths 0. Available via
+>   `--policy heuristic`; default stays `baseline` so the headline measures the
+>   engine alone. The paper's larger guessing edge needs principled info-gain
+>   (`Inf(x)` re-deduction) or lookahead (the deferred MC rollout).
+>
+> The numbers below are the ORIGINAL pre-reduction baseline, kept for reference.
+
 Date: 2026-05-31
 Harness: `minesweeper_bench` (Stream A–C), `POLICY_BASELINE` (engine min-prob pick).
 Build: gcc `-Werror` (clang-22/Orthodoxy gate separate). Determinism verified
