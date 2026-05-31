@@ -66,3 +66,43 @@ add_custom_command(TARGET minesweeper_solver POST_BUILD
     $<TARGET_FILE_DIR:minesweeper_solver>/assets
   COMMENT "Copying assets next to executable"
 )
+
+# ---------------------------------------------------------------------------
+# Headless benchmark harness (Stream A scaffold). SDL-free: links only the pure
+# game logic + the SDL-free engine, so it builds/runs without a graphics stack.
+# ---------------------------------------------------------------------------
+find_package(Threads REQUIRED)
+
+# SDL-free pure game logic (game + util only) — distinct from minesweeper_reuse,
+# which drags in SDL via render/assets/ui/audio. Reused sibling code: warnings
+# only, no Orthodoxy.
+add_library(game_core STATIC
+  ${MINESWEEPER_DIR}/src/game/game.cc
+  ${MINESWEEPER_DIR}/src/util/util.cc
+)
+target_include_directories(game_core PUBLIC ${MINESWEEPER_DIR}/include)
+target_compile_options(game_core PRIVATE -Wall -Wextra)
+
+# Bench logic library (our code → Orthodoxy + warnings-as-error). std::thread /
+# std::atomic in runner.cc are a sanctioned, file-local exception.
+add_library(bench_lib STATIC
+  bench/policy.cc
+  bench/metrics.cc
+  bench/runner.cc
+  bench/args.cc
+)
+target_include_directories(bench_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/bench)
+target_link_libraries(bench_lib PUBLIC solver_lib game_core Threads::Threads)
+target_compile_options(bench_lib PRIVATE ${SOLVER_WARNINGS})
+
+add_executable(minesweeper_bench bench/main.cc)
+target_link_libraries(minesweeper_bench PRIVATE bench_lib)
+target_compile_options(minesweeper_bench PRIVATE ${SOLVER_WARNINGS})
+
+set_target_properties(bench_lib minesweeper_bench PROPERTIES
+  COMPILE_WARNING_AS_ERROR ${MINESWEEPER_SOLVER_WERROR})
+
+if(orthodoxy_plugin_FOUND)
+  target_link_libraries(bench_lib PRIVATE orthodoxy::plugin)
+  target_link_libraries(minesweeper_bench PRIVATE orthodoxy::plugin)
+endif()
