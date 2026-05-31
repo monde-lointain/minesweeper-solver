@@ -87,6 +87,7 @@ target_compile_options(game_core PRIVATE -Wall -Wextra)
 # std::atomic in runner.cc are a sanctioned, file-local exception.
 add_library(bench_lib STATIC
   bench/policy.cc
+  bench/policy_heuristic.cc
   bench/metrics.cc
   bench/runner.cc
   bench/args.cc

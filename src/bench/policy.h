@@ -20,8 +20,9 @@ struct Move {
 };
 
 enum PolicyId {
-  POLICY_BASELINE = 0, /* engine min-prob pick (today's behavior) */
-  POLICY_COUNT = 1
+  POLICY_BASELINE = 0,  /* engine min-prob pick (today's behavior) */
+  POLICY_HEURISTIC = 1, /* min-prob + progress-aware tie-break (paper-validated) */
+  POLICY_COUNT = 2
 };
 
 /* Choose a covered cell to reveal for the given analysis. Returns 0 and writes

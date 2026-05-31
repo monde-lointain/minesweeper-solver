@@ -15,12 +15,30 @@ add_executable(golden_test golden_test.cc)
 target_link_libraries(golden_test PRIVATE solver_lib gtest_main)
 gtest_discover_tests(golden_test)
 
+# Engine-internal tests (exact-rational primitive + Gaussian-reduction driver).
+# They reach into src/engine for rational.h / engine_internal.h, which are NOT
+# part of the installed contract.
+add_executable(rational_test rational_test.cc)
+target_link_libraries(rational_test PRIVATE solver_lib gtest_main)
+target_include_directories(rational_test PRIVATE ${PROJECT_SOURCE_DIR}/src/engine)
+gtest_discover_tests(rational_test)
+
+add_executable(engine_reduction_test engine_reduction_test.cc)
+target_link_libraries(engine_reduction_test PRIVATE solver_lib gtest_main)
+target_include_directories(engine_reduction_test
+  PRIVATE ${PROJECT_SOURCE_DIR}/src/engine)
+gtest_discover_tests(engine_reduction_test)
+
 # Benchmark harness tests. Each links bench_lib (which PUBLIC-propagates the
 # bench include dir + solver_lib/game_core). Per-module surfaces keep ownership
 # file-disjoint across streams; bench_test is the cross-module integration gate.
 add_executable(bench_policy_test bench_policy_test.cc)
 target_link_libraries(bench_policy_test PRIVATE bench_lib gtest_main)
 gtest_discover_tests(bench_policy_test)
+
+add_executable(bench_policy_heuristic_test bench_policy_heuristic_test.cc)
+target_link_libraries(bench_policy_heuristic_test PRIVATE bench_lib gtest_main)
+gtest_discover_tests(bench_policy_heuristic_test)
 
 add_executable(bench_metrics_test bench_metrics_test.cc)
 target_link_libraries(bench_metrics_test PRIVATE bench_lib gtest_main)

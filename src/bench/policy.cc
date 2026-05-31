@@ -7,10 +7,15 @@
  */
 #include "policy.h"
 
+#include "policy_heuristic.h"
+
 int policy_select(int policy_id, const struct Board* b,
                   const struct Analysis* a, struct Move* out) {
-  (void)policy_id; /* only POLICY_BASELINE today */
-  (void)b;         /* baseline reads the engine's precomputed best move */
+  if (policy_id == POLICY_HEURISTIC) {
+    return policy_heuristic_select(b, a, out);
+  }
+  /* POLICY_BASELINE: forward the engine's precomputed min-prob pick. */
+  (void)b;
   if (a->best_x < 0 || a->best_y < 0) {
     return -1; /* no covered cell (solved/terminal) */
   }
