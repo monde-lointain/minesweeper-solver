@@ -131,11 +131,11 @@ long long brute(const TB& tb, double* prob) {
 }
 
 /* Build, analyze, and assert engine == brute for every covered cell. */
-void expect_matches_brute(const TB& tb) {
+void expect_matches_brute(const TB& tb, SolverScratch* s) {
   Board b;
   build_board(tb, &b);
   Analysis a;
-  solver_analyze(&b, &a);
+  solver_analyze(&b, &a, s);
 
   double ref[kMaxC];
   long long nsol = brute(tb, ref);
@@ -154,7 +154,18 @@ void expect_matches_brute(const TB& tb) {
 
 }  // namespace
 
-TEST(Engine, CornerOneMine) {
+/* Fixture: one heap SolverScratch per test (reuse within a test is safe). */
+class Engine : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    s = solver_scratch_create();
+    ASSERT_NE(s, nullptr);
+  }
+  void TearDown() override { solver_scratch_destroy(s); }
+  SolverScratch* s = nullptr;
+};
+
+TEST_F(Engine, CornerOneMine) {
   /* 2x2, mine at (1,1), reveal (0,0)="1" -> each covered cell P=1/3. */
   TB tb;
   memset(&tb, 0, sizeof tb);
@@ -162,18 +173,18 @@ TEST(Engine, CornerOneMine) {
   tb.h = 2;
   tb.mine[ix(2, 1, 1)] = true;
   tb.revealed[ix(2, 0, 0)] = true;
-  expect_matches_brute(tb);
+  expect_matches_brute(tb, s);
 
   Board b;
   build_board(tb, &b);
   Analysis a;
-  solver_analyze(&b, &a);
+  solver_analyze(&b, &a, s);
   EXPECT_NEAR(a.cells[ix(2, 1, 0)].mine_prob, 1.0 / 3.0, 1e-6);
   EXPECT_EQ(a.eval, EVAL_GUESS);
   EXPECT_NEAR(a.best_prob, 1.0 / 3.0, 1e-6);
 }
 
-TEST(Engine, OneTwoOneForced) {
+TEST_F(Engine, OneTwoOneForced) {
   /* top row 1,2,1 over a 3-wide covered bottom row -> mines at (0,1),(2,1),
    * (1,1) safe. Unique solution: deterministic. */
   TB tb;
@@ -185,12 +196,12 @@ TEST(Engine, OneTwoOneForced) {
   tb.revealed[ix(3, 0, 0)] = true;
   tb.revealed[ix(3, 1, 0)] = true;
   tb.revealed[ix(3, 2, 0)] = true;
-  expect_matches_brute(tb);
+  expect_matches_brute(tb, s);
 
   Board b;
   build_board(tb, &b);
   Analysis a;
-  solver_analyze(&b, &a);
+  solver_analyze(&b, &a, s);
   EXPECT_TRUE(a.cells[ix(3, 0, 1)].forced_mine);
   EXPECT_TRUE(a.cells[ix(3, 2, 1)].forced_mine);
   EXPECT_TRUE(a.cells[ix(3, 1, 1)].forced_safe);
@@ -200,7 +211,7 @@ TEST(Engine, OneTwoOneForced) {
   EXPECT_NEAR(a.best_prob, 0.0, 1e-9);
 }
 
-TEST(Engine, SinglePointForcedMine) {
+TEST_F(Engine, SinglePointForcedMine) {
   /* 1x2 column: reveal (0,0)="1" with one covered neighbor (0,1) -> mine. */
   TB tb;
   memset(&tb, 0, sizeof tb);
@@ -208,16 +219,16 @@ TEST(Engine, SinglePointForcedMine) {
   tb.h = 2;
   tb.mine[ix(1, 0, 1)] = true;
   tb.revealed[ix(1, 0, 0)] = true;
-  expect_matches_brute(tb);
+  expect_matches_brute(tb, s);
 
   Board b;
   build_board(tb, &b);
   Analysis a;
-  solver_analyze(&b, &a);
+  solver_analyze(&b, &a, s);
   EXPECT_TRUE(a.cells[ix(1, 0, 1)].forced_mine);
 }
 
-TEST(Engine, InteriorCellsShareRemainder) {
+TEST_F(Engine, InteriorCellsShareRemainder) {
   /* 4x4, 3 mines. Reveal a numbered cell touching one corner; far cells are
    * interior and share the remaining mine budget. Engine must match brute. */
   TB tb;
@@ -228,16 +239,16 @@ TEST(Engine, InteriorCellsShareRemainder) {
   tb.mine[ix(4, 3, 3)] = true; /* interior-ish */
   tb.mine[ix(4, 0, 3)] = true;
   tb.revealed[ix(4, 0, 0)] = true; /* "1": neighbors (1,0),(0,1),(1,1) */
-  expect_matches_brute(tb);
+  expect_matches_brute(tb, s);
 
   Board b;
   build_board(tb, &b);
   Analysis a;
-  solver_analyze(&b, &a);
+  solver_analyze(&b, &a, s);
   EXPECT_GT(a.interior_count, 0);
 }
 
-TEST(Engine, RandomBoardsMatchBrute) {
+TEST_F(Engine, RandomBoardsMatchBrute) {
   /* deterministic pseudo-random small boards; compare engine to brute. */
   unsigned int seed = 0x1234567u;
   for (int iter = 0; iter < 40; ++iter) {
@@ -275,11 +286,11 @@ TEST(Engine, RandomBoardsMatchBrute) {
     /* keep covered count small enough for brute force */
     int covered = ncell - revealed;
     if (covered > 16) continue;
-    expect_matches_brute(tb);
+    expect_matches_brute(tb, s);
   }
 }
 
-TEST(Engine, StartUniform) {
+TEST_F(Engine, StartUniform) {
   Board b;
   memset(&b, 0, sizeof b);
   b.width = 9;
@@ -287,14 +298,14 @@ TEST(Engine, StartUniform) {
   b.mines = 10;
   b.status = GAME_READY;
   Analysis a;
-  solver_analyze(&b, &a);
+  solver_analyze(&b, &a, s);
   EXPECT_EQ(a.eval, EVAL_START);
   EXPECT_NEAR(a.cells[0].mine_prob, 10.0 / 81.0, 1e-9);
   EXPECT_EQ(a.best_x, 0);
   EXPECT_EQ(a.best_y, 0);
 }
 
-TEST(Engine, WonAndLost) {
+TEST_F(Engine, WonAndLost) {
   Board b;
   memset(&b, 0, sizeof b);
   b.width = 9;
@@ -303,9 +314,9 @@ TEST(Engine, WonAndLost) {
   b.revealed_count = 5;
   Analysis a;
   b.status = GAME_WON;
-  solver_analyze(&b, &a);
+  solver_analyze(&b, &a, s);
   EXPECT_EQ(a.eval, EVAL_SOLVED);
   b.status = GAME_LOST;
-  solver_analyze(&b, &a);
+  solver_analyze(&b, &a, s);
   EXPECT_EQ(a.eval, EVAL_LOST);
 }

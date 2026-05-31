@@ -49,7 +49,7 @@ static uint32_t solver_rng(void* ctx, uint32_t n) {
 
 /* (3) recompute the cached analysis. */
 static void app_reanalyze(struct AppState* s) {
-  solver_analyze(&s->board, &s->analysis);
+  solver_analyze(&s->board, &s->analysis, s->scratch);
 }
 
 /* ---- difficulty geometry ----------------------------------------------- */
@@ -169,8 +169,15 @@ SDL_AppResult app_init(struct AppState** out, int argc, char** argv) {
     return SDL_APP_FAILURE;
   }
 
+  s->scratch = solver_scratch_create();
+  if (s->scratch == NULL) {
+    free(s);
+    return SDL_APP_FAILURE;
+  }
+
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
     fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
+    solver_scratch_destroy(s->scratch);
     free(s);
     return SDL_APP_FAILURE;
   }
@@ -184,6 +191,7 @@ SDL_AppResult app_init(struct AppState** out, int argc, char** argv) {
   if (!SDL_CreateWindowAndRenderer("Minesweeper Solver", 320, 240, 0,
                                    &s->window, &s->renderer)) {
     fprintf(stderr, "CreateWindowAndRenderer failed: %s\n", SDL_GetError());
+    solver_scratch_destroy(s->scratch);
     free(s);
     return SDL_APP_FAILURE;
   }
@@ -210,6 +218,7 @@ SDL_AppResult app_init(struct AppState** out, int argc, char** argv) {
     fprintf(stderr, "asset load failed from %s\n", s->asset_dir);
     SDL_DestroyRenderer(s->renderer);
     SDL_DestroyWindow(s->window);
+    solver_scratch_destroy(s->scratch);
     free(s);
     return SDL_APP_FAILURE;
   }
@@ -567,5 +576,6 @@ void app_quit(struct AppState* s) {
   if (s->window != NULL) {
     SDL_DestroyWindow(s->window);
   }
+  solver_scratch_destroy(s->scratch);
   free(s);
 }

@@ -40,7 +40,16 @@ struct Analysis {
   int eval;              /* enum SolverEval */
 };
 
-/* Analyze the visible board state into `out`. Pure function of `b`. */
-void solver_analyze(const struct Board* b, struct Analysis* out);
+/* Per-analysis working memory (~2.5 MB), heap-allocated and opaque. The engine
+ * is reentrant: give each thread/solver instance its own scratch; never share
+ * one handle across threads. */
+struct SolverScratch;
+struct SolverScratch* solver_scratch_create(void); /* calloc; NULL on OOM */
+void solver_scratch_destroy(struct SolverScratch* s); /* free; NULL-safe */
+
+/* Analyze the visible board state into `out`, using `s` as scratch. Pure
+ * function of `b` (writes only `out` and `s`). `s` must be non-NULL. */
+void solver_analyze(const struct Board* b, struct Analysis* out,
+                    struct SolverScratch* s);
 
 #endif /* SOLVER_ENGINE_H */

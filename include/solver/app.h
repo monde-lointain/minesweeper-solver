@@ -45,8 +45,9 @@ struct AppState {
   char pref_path[1024];
 
   /* --- solver additions --- */
-  struct Analysis analysis; /* recomputed when the revealed set changes */
-  bool overlay_on;          /* F10 toggles the analysis overlay */
+  struct SolverScratch* scratch; /* engine working memory (per-app instance) */
+  struct Analysis analysis;      /* recomputed when the revealed set changes */
+  bool overlay_on;               /* F10 toggles the analysis overlay */
 };
 
 /* Allocate + initialize: SDL, window/renderer, ImGui, config, assets, first

@@ -154,7 +154,9 @@ void run(const Spec& sp, Stats* st) {
   Board b;
   build(sp, &b);
   Analysis a;
-  solver_analyze(&b, &a); /* signature gains a scratch arg at refactor step 1 */
+  SolverScratch* sc = solver_scratch_create();
+  solver_analyze(&b, &a, sc);
+  solver_scratch_destroy(sc);
   measure(&b, &a, st);
 }
 
