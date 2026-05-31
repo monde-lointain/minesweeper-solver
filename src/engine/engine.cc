@@ -47,12 +47,14 @@ static const int NODE_BUDGET = 5000000;
  * it is read each call (or read only within the [0,len) window written this
  * call), so reuse across calls is safe and a per-call memset is unnecessary.
  *
- * Fields are grouped by pipeline role, not packed by alignment: the ~35 padding
- * bytes are irrelevant in a ~2.5 MB struct, and grouping aids maintenance.
+ * Fields are grouped by pipeline role into POD sub-structs, not packed by
+ * alignment: the padding is irrelevant in a ~2.5 MB struct, and grouping aids
+ * maintenance. NOLINTNEXTLINE silences the padding analyzer on the sub-structs
+ * that mix int and long double.
  */
-/* NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding) */
-struct SolverScratch {
-  /* constraint / variable model */
+
+/* constraint / variable model + union-find over vars */
+struct ConstraintModel {
   int var_of_cell[MAXCELL]; /* cell idx -> var id, or -1 */
   int cell_of_var[MAXCELL]; /* var id -> cell idx */
   int nvar;
@@ -61,48 +63,64 @@ struct SolverScratch {
   int con_nv[MAXCELL];
   int con_need[MAXCELL]; /* total mines among those vars (= adjacent) */
   int ncon;
+  int parent[MAXCELL]; /* union-find over vars */
+};
 
-  /* union-find over vars */
-  int parent[MAXCELL];
-
-  /* component layout */
-  int comp_of_var[MAXCELL]; /* unknown var -> component id, else -1 */
+/* component layout: var -> component id, local index, uf-root labels */
+struct CompLayout {
+  int of_var[MAXCELL]; /* unknown var -> component id, else -1 */
   int local_of_var[MAXCELL];
   int label[MAXCELL]; /* uf root -> component id (build_components scratch) */
+};
 
-  /* per-component normalized results */
-  int comp_nv[MAXCOMP];
-  int comp_gv[MAXCOMP][CAP_VARS]; /* local -> global var */
-  long double comp_shat[MAXCOMP][CAP_VARS + 1];
-  long double comp_mhat[MAXCOMP][CAP_VARS][CAP_VARS + 1];
-  bool comp_fallback[MAXCOMP];
-  long double comp_fb_p[MAXCOMP][CAP_VARS]; /* naive prob if fallback */
+/* per-component normalized enumeration results */
+/* NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding) */
+struct CompResults {
+  int nv[MAXCOMP];
+  int gv[MAXCOMP][CAP_VARS]; /* local -> global var */
+  long double shat[MAXCOMP][CAP_VARS + 1];
+  long double mhat[MAXCOMP][CAP_VARS][CAP_VARS + 1];
+  bool fallback[MAXCOMP];
+  long double fb_p[MAXCOMP][CAP_VARS]; /* naive prob if fallback */
+};
 
-  /* DP scratch */
+/* global-combination DP scratch + analyze-local combine buffers */
+/* NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding) */
+struct CombineDP {
   long double prefix[MAXCOMP + 1][MAXFLEN];
   int prefix_len[MAXCOMP + 1];
   long double suffix[MAXCOMP + 1][MAXFLEN];
   int suffix_len[MAXCOMP + 1];
+  int exact_idx[MAXCOMP];  /* compacted list of exact (non-fallback) comps */
+  long double oc[MAXFLEN]; /* per-component leave-one-out convolution buffer */
+};
 
-  /* enumeration scratch (one component at a time) */
-  int ec_nv;
-  int ec_ncon;
-  int ec_con_lv[MAXCELL][8];
-  int ec_con_nlv[MAXCELL];
-  int ec_con_need[MAXCELL];
-  int ec_con_sum[MAXCELL];
-  int ec_con_un[MAXCELL]; /* unassigned vars remaining in the constraint */
-  int ec_varcon[CAP_VARS][MAXVARCON];
-  int ec_varcon_n[CAP_VARS];
-  int ec_assign[CAP_VARS];
-  long double ec_s[CAP_VARS + 1];
-  long double ec_m[CAP_VARS][CAP_VARS + 1];
-  int ec_nodes;
-  bool ec_overflow;
+/* enumeration scratch (one component at a time) */
+/* NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding) */
+struct EnumScratch {
+  int nv;
+  int ncon;
+  int con_lv[MAXCELL][8];
+  int con_nlv[MAXCELL];
+  int con_need[MAXCELL];
+  int con_sum[MAXCELL];
+  int con_un[MAXCELL]; /* unassigned vars remaining in the constraint */
+  int varcon[CAP_VARS][MAXVARCON];
+  int varcon_n[CAP_VARS];
+  int assign[CAP_VARS];
+  long double sol[CAP_VARS + 1];            /* per mine-count k: #solutions */
+  long double mine[CAP_VARS][CAP_VARS + 1]; /* per (var,k): mine incidence */
+  int nodes;
+  bool overflow;
+};
 
-  /* analyze-local scratch (promoted from function-local statics) */
-  int exact_idx[MAXCOMP];
-  long double oc[MAXFLEN];
+/* NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding) */
+struct SolverScratch {
+  struct ConstraintModel cm;
+  struct CompLayout comp;
+  struct CompResults res;
+  struct CombineDP dp;
+  struct EnumScratch ec;
 };
 
 struct SolverScratch* solver_scratch_create(void) {
@@ -130,9 +148,9 @@ static long double binom_ld(int n, int k) {
 }
 
 static int uf_find(struct SolverScratch* s, int x) {
-  while (s->parent[x] != x) {
-    s->parent[x] = s->parent[s->parent[x]];
-    x = s->parent[x];
+  while (s->cm.parent[x] != x) {
+    s->cm.parent[x] = s->cm.parent[s->cm.parent[x]];
+    x = s->cm.parent[x];
   }
   return x;
 }
@@ -141,7 +159,7 @@ static void uf_union(struct SolverScratch* s, int a, int b) {
   int ra = uf_find(s, a);
   int rb = uf_find(s, b);
   if (ra != rb) {
-    s->parent[ra] = rb;
+    s->cm.parent[ra] = rb;
   }
 }
 
@@ -155,8 +173,8 @@ static void constraint_tally(const struct SolverScratch* s, int ci,
                              int* fixed_mines, int* unknown) {
   int fm = 0;
   int unk = 0;
-  for (int j = 0; j < s->con_nv[ci]; ++j) {
-    int st = s->vstate[s->con_var[ci][j]];
+  for (int j = 0; j < s->cm.con_nv[ci]; ++j) {
+    int st = s->cm.vstate[s->cm.con_var[ci][j]];
     if (st == VAR_MINE) {
       ++fm;
     } else if (st == VAR_UNKNOWN) {
@@ -170,10 +188,10 @@ static void constraint_tally(const struct SolverScratch* s, int ci,
 /* ---- step 1: build constraints + variables --------------------------------
  */
 static void build_constraints(const struct Board* b, struct SolverScratch* s) {
-  s->nvar = 0;
-  s->ncon = 0;
+  s->cm.nvar = 0;
+  s->cm.ncon = 0;
   for (int i = 0; i < b->width * b->height; ++i) {
-    s->var_of_cell[i] = -1;
+    s->cm.var_of_cell[i] = -1;
   }
   for (int y = 0; y < b->height; ++y) {
     for (int x = 0; x < b->width; ++x) {
@@ -197,24 +215,24 @@ static void build_constraints(const struct Board* b, struct SolverScratch* s) {
             continue;
           }
           int idx = game_index(b, nx, ny);
-          if (s->var_of_cell[idx] < 0) {
-            s->var_of_cell[idx] = s->nvar;
-            s->cell_of_var[s->nvar] = idx;
-            s->vstate[s->nvar] = VAR_UNKNOWN;
-            ++s->nvar;
+          if (s->cm.var_of_cell[idx] < 0) {
+            s->cm.var_of_cell[idx] = s->cm.nvar;
+            s->cm.cell_of_var[s->cm.nvar] = idx;
+            s->cm.vstate[s->cm.nvar] = VAR_UNKNOWN;
+            ++s->cm.nvar;
           }
-          vars[nv++] = s->var_of_cell[idx];
+          vars[nv++] = s->cm.var_of_cell[idx];
         }
       }
       if (nv == 0) {
         continue;
       }
       for (int j = 0; j < nv; ++j) {
-        s->con_var[s->ncon][j] = vars[j];
+        s->cm.con_var[s->cm.ncon][j] = vars[j];
       }
-      s->con_nv[s->ncon] = nv;
-      s->con_need[s->ncon] = c->adjacent;
-      ++s->ncon;
+      s->cm.con_nv[s->cm.ncon] = nv;
+      s->cm.con_need[s->cm.ncon] = c->adjacent;
+      ++s->cm.ncon;
     }
   }
 }
@@ -225,14 +243,14 @@ static void deduce(struct SolverScratch* s) {
   bool changed = true;
   while (changed) {
     changed = false;
-    for (int ci = 0; ci < s->ncon; ++ci) {
+    for (int ci = 0; ci < s->cm.ncon; ++ci) {
       int fixed_mines = 0;
       int unknown = 0;
       constraint_tally(s, ci, &fixed_mines, &unknown);
       if (unknown == 0) {
         continue;
       }
-      int rem = s->con_need[ci] - fixed_mines;
+      int rem = s->cm.con_need[ci] - fixed_mines;
       int set_to = -1;
       if (rem <= 0) {
         set_to = VAR_SAFE;
@@ -240,10 +258,10 @@ static void deduce(struct SolverScratch* s) {
         set_to = VAR_MINE;
       }
       if (set_to >= 0) {
-        for (int j = 0; j < s->con_nv[ci]; ++j) {
-          int v = s->con_var[ci][j];
-          if (s->vstate[v] == VAR_UNKNOWN) {
-            s->vstate[v] = set_to;
+        for (int j = 0; j < s->cm.con_nv[ci]; ++j) {
+          int v = s->cm.con_var[ci][j];
+          if (s->cm.vstate[v] == VAR_UNKNOWN) {
+            s->cm.vstate[v] = set_to;
             changed = true;
           }
         }
@@ -255,14 +273,14 @@ static void deduce(struct SolverScratch* s) {
 /* ---- step 3: components over residual unknown vars ------------------------
  */
 static int build_components(struct SolverScratch* s) {
-  for (int v = 0; v < s->nvar; ++v) {
-    s->parent[v] = v;
+  for (int v = 0; v < s->cm.nvar; ++v) {
+    s->cm.parent[v] = v;
   }
-  for (int ci = 0; ci < s->ncon; ++ci) {
+  for (int ci = 0; ci < s->cm.ncon; ++ci) {
     int first = -1;
-    for (int j = 0; j < s->con_nv[ci]; ++j) {
-      int v = s->con_var[ci][j];
-      if (s->vstate[v] != VAR_UNKNOWN) {
+    for (int j = 0; j < s->cm.con_nv[ci]; ++j) {
+      int v = s->cm.con_var[ci][j];
+      if (s->cm.vstate[v] != VAR_UNKNOWN) {
         continue;
       }
       if (first < 0) {
@@ -272,20 +290,20 @@ static int build_components(struct SolverScratch* s) {
       }
     }
   }
-  for (int v = 0; v < s->nvar; ++v) {
-    s->label[v] = -1;
-    s->comp_of_var[v] = -1;
+  for (int v = 0; v < s->cm.nvar; ++v) {
+    s->comp.label[v] = -1;
+    s->comp.of_var[v] = -1;
   }
   int ncomp = 0;
-  for (int v = 0; v < s->nvar; ++v) {
-    if (s->vstate[v] != VAR_UNKNOWN) {
+  for (int v = 0; v < s->cm.nvar; ++v) {
+    if (s->cm.vstate[v] != VAR_UNKNOWN) {
       continue;
     }
     int r = uf_find(s, v);
-    if (s->label[r] < 0) {
-      s->label[r] = ncomp++;
+    if (s->comp.label[r] < 0) {
+      s->comp.label[r] = ncomp++;
     }
-    s->comp_of_var[v] = s->label[r];
+    s->comp.of_var[v] = s->comp.label[r];
   }
   return ncomp;
 }
@@ -293,45 +311,45 @@ static int build_components(struct SolverScratch* s) {
 /* ---- step 4: per-component enumeration ------------------------------------
  */
 static void enum_dfs(struct SolverScratch* s, int i, int total) {
-  if (s->ec_overflow) {
+  if (s->ec.overflow) {
     return;
   }
-  if (++s->ec_nodes > NODE_BUDGET) {
-    s->ec_overflow = true;
+  if (++s->ec.nodes > NODE_BUDGET) {
+    s->ec.overflow = true;
     return;
   }
-  if (i == s->ec_nv) {
-    s->ec_s[total] += 1.0L;
-    for (int lv = 0; lv < s->ec_nv; ++lv) {
-      if (s->ec_assign[lv] == 1) {
-        s->ec_m[lv][total] += 1.0L;
+  if (i == s->ec.nv) {
+    s->ec.sol[total] += 1.0L;
+    for (int lv = 0; lv < s->ec.nv; ++lv) {
+      if (s->ec.assign[lv] == 1) {
+        s->ec.mine[lv][total] += 1.0L;
       }
     }
     return;
   }
   for (int val = 0; val <= 1; ++val) {
     bool ok = true;
-    for (int t = 0; t < s->ec_varcon_n[i]; ++t) {
-      int cj = s->ec_varcon[i][t];
-      s->ec_con_sum[cj] += val;
-      s->ec_con_un[cj] -= 1;
-      bool over = s->ec_con_sum[cj] > s->ec_con_need[cj];
+    for (int t = 0; t < s->ec.varcon_n[i]; ++t) {
+      int cj = s->ec.varcon[i][t];
+      s->ec.con_sum[cj] += val;
+      s->ec.con_un[cj] -= 1;
+      bool over = s->ec.con_sum[cj] > s->ec.con_need[cj];
       bool closed_wrong =
-          s->ec_con_un[cj] == 0 && s->ec_con_sum[cj] != s->ec_con_need[cj];
+          s->ec.con_un[cj] == 0 && s->ec.con_sum[cj] != s->ec.con_need[cj];
       bool cannot_reach =
-          s->ec_con_sum[cj] + s->ec_con_un[cj] < s->ec_con_need[cj];
+          s->ec.con_sum[cj] + s->ec.con_un[cj] < s->ec.con_need[cj];
       if (over || closed_wrong || cannot_reach) {
         ok = false;
       }
     }
     if (ok) {
-      s->ec_assign[i] = val;
+      s->ec.assign[i] = val;
       enum_dfs(s, i + 1, total + val);
     }
-    for (int t = 0; t < s->ec_varcon_n[i]; ++t) {
-      int cj = s->ec_varcon[i][t];
-      s->ec_con_sum[cj] -= val;
-      s->ec_con_un[cj] += 1;
+    for (int t = 0; t < s->ec.varcon_n[i]; ++t) {
+      int cj = s->ec.varcon[i][t];
+      s->ec.con_sum[cj] -= val;
+      s->ec.con_un[cj] += 1;
     }
   }
 }
@@ -340,86 +358,86 @@ static void enum_dfs(struct SolverScratch* s, int i, int total) {
  * fallback (over cap / budget), true on exact success. */
 static bool enumerate_component(struct SolverScratch* s, int comp) {
   /* gather local vars */
-  s->ec_nv = 0;
-  for (int v = 0; v < s->nvar; ++v) {
-    if (s->comp_of_var[v] == comp) {
-      if (s->ec_nv >= CAP_VARS) {
+  s->ec.nv = 0;
+  for (int v = 0; v < s->cm.nvar; ++v) {
+    if (s->comp.of_var[v] == comp) {
+      if (s->ec.nv >= CAP_VARS) {
         return false; /* too many vars: fallback */
       }
-      s->local_of_var[v] = s->ec_nv;
-      s->comp_gv[comp][s->ec_nv] = v;
-      ++s->ec_nv;
+      s->comp.local_of_var[v] = s->ec.nv;
+      s->res.gv[comp][s->ec.nv] = v;
+      ++s->ec.nv;
     }
   }
   /* gather local constraints */
-  s->ec_ncon = 0;
-  for (int lv = 0; lv < s->ec_nv; ++lv) {
-    s->ec_varcon_n[lv] = 0;
+  s->ec.ncon = 0;
+  for (int lv = 0; lv < s->ec.nv; ++lv) {
+    s->ec.varcon_n[lv] = 0;
   }
-  for (int ci = 0; ci < s->ncon; ++ci) {
+  for (int ci = 0; ci < s->cm.ncon; ++ci) {
     int first_unknown = -1;
-    for (int j = 0; j < s->con_nv[ci]; ++j) {
-      int v = s->con_var[ci][j];
-      if (s->vstate[v] == VAR_UNKNOWN) {
+    for (int j = 0; j < s->cm.con_nv[ci]; ++j) {
+      int v = s->cm.con_var[ci][j];
+      if (s->cm.vstate[v] == VAR_UNKNOWN) {
         first_unknown = v;
         break;
       }
     }
-    if (first_unknown < 0 || s->comp_of_var[first_unknown] != comp) {
+    if (first_unknown < 0 || s->comp.of_var[first_unknown] != comp) {
       continue;
     }
     int fixed_mines = 0;
     int nlv = 0;
-    for (int j = 0; j < s->con_nv[ci]; ++j) {
-      int v = s->con_var[ci][j];
-      if (s->vstate[v] == VAR_MINE) {
+    for (int j = 0; j < s->cm.con_nv[ci]; ++j) {
+      int v = s->cm.con_var[ci][j];
+      if (s->cm.vstate[v] == VAR_MINE) {
         ++fixed_mines;
-      } else if (s->vstate[v] == VAR_UNKNOWN) {
-        int lv = s->local_of_var[v];
-        s->ec_con_lv[s->ec_ncon][nlv] = lv;
-        s->ec_varcon[lv][s->ec_varcon_n[lv]++] = s->ec_ncon;
+      } else if (s->cm.vstate[v] == VAR_UNKNOWN) {
+        int lv = s->comp.local_of_var[v];
+        s->ec.con_lv[s->ec.ncon][nlv] = lv;
+        s->ec.varcon[lv][s->ec.varcon_n[lv]++] = s->ec.ncon;
         ++nlv;
       }
     }
-    s->ec_con_nlv[s->ec_ncon] = nlv;
-    s->ec_con_need[s->ec_ncon] = s->con_need[ci] - fixed_mines;
-    ++s->ec_ncon;
+    s->ec.con_nlv[s->ec.ncon] = nlv;
+    s->ec.con_need[s->ec.ncon] = s->cm.con_need[ci] - fixed_mines;
+    ++s->ec.ncon;
   }
   /* init enumeration state */
-  for (int k = 0; k <= s->ec_nv; ++k) {
-    s->ec_s[k] = 0.0L;
+  for (int k = 0; k <= s->ec.nv; ++k) {
+    s->ec.sol[k] = 0.0L;
   }
-  for (int lv = 0; lv < s->ec_nv; ++lv) {
-    for (int k = 0; k <= s->ec_nv; ++k) {
-      s->ec_m[lv][k] = 0.0L;
+  for (int lv = 0; lv < s->ec.nv; ++lv) {
+    for (int k = 0; k <= s->ec.nv; ++k) {
+      s->ec.mine[lv][k] = 0.0L;
     }
   }
-  for (int cj = 0; cj < s->ec_ncon; ++cj) {
-    s->ec_con_sum[cj] = 0;
-    s->ec_con_un[cj] = s->ec_con_nlv[cj];
+  for (int cj = 0; cj < s->ec.ncon; ++cj) {
+    s->ec.con_sum[cj] = 0;
+    s->ec.con_un[cj] = s->ec.con_nlv[cj];
   }
-  s->ec_nodes = 0;
-  s->ec_overflow = false;
+  s->ec.nodes = 0;
+  s->ec.overflow = false;
   enum_dfs(s, 0, 0);
-  if (s->ec_overflow) {
+  if (s->ec.overflow) {
     return false;
   }
   /* normalize into comp tables */
   long double total = 0.0L;
-  for (int k = 0; k <= s->ec_nv; ++k) {
-    total += s->ec_s[k];
+  for (int k = 0; k <= s->ec.nv; ++k) {
+    total += s->ec.sol[k];
   }
   if (total <= 0.0L) {
     return false; /* infeasible component (shouldn't happen): fallback */
   }
-  s->comp_nv[comp] = s->ec_nv;
-  s->comp_fallback[comp] = false;
-  for (int k = 0; k <= s->ec_nv; ++k) {
-    s->comp_shat[comp][k] = s->ec_s[k] / total;
+  s->res.nv[comp] = s->ec.nv;
+  s->res.fallback[comp] = false;
+  for (int k = 0; k <= s->ec.nv; ++k) {
+    s->res.shat[comp][k] = s->ec.sol[k] / total;
   }
-  for (int lv = 0; lv < s->ec_nv; ++lv) {
-    for (int k = 0; k <= s->ec_nv; ++k) {
-      s->comp_mhat[comp][lv][k] = s->ec_m[lv][k] / total;
+  for (int lv = 0; lv < s->ec.nv; ++lv) {
+    for (int k = 0; k <= s->ec.nv; ++k) {
+      s->res.mhat[comp][lv][k] = s->ec.mine[lv][k] / total;
     }
   }
   return true;
@@ -427,42 +445,42 @@ static bool enumerate_component(struct SolverScratch* s, int comp) {
 
 /* Naive fallback probabilities for an over-budget component. */
 static void fallback_component(struct SolverScratch* s, int comp) {
-  s->comp_fallback[comp] = true;
+  s->res.fallback[comp] = true;
   /* comp_nv / comp_gv already filled up to the cap; recount fully */
   int nv = 0;
-  for (int v = 0; v < s->nvar; ++v) {
-    if (s->comp_of_var[v] == comp) {
+  for (int v = 0; v < s->cm.nvar; ++v) {
+    if (s->comp.of_var[v] == comp) {
       if (nv < CAP_VARS) {
-        s->comp_gv[comp][nv] = v;
+        s->res.gv[comp][nv] = v;
       }
       ++nv;
     }
   }
   int use = nv < CAP_VARS ? nv : CAP_VARS;
-  s->comp_nv[comp] = use;
+  s->res.nv[comp] = use;
   for (int lv = 0; lv < use; ++lv) {
-    int v = s->comp_gv[comp][lv];
-    int cell = s->cell_of_var[v];
+    int v = s->res.gv[comp][lv];
+    int cell = s->cm.cell_of_var[v];
     long double sum = 0.0L;
     int cnt = 0;
-    for (int ci = 0; ci < s->ncon; ++ci) {
+    for (int ci = 0; ci < s->cm.ncon; ++ci) {
       int unknown = 0;
       int fixed_mines = 0;
       constraint_tally(s, ci, &fixed_mines, &unknown);
       bool has = false;
-      for (int j = 0; j < s->con_nv[ci]; ++j) {
-        if (s->cell_of_var[s->con_var[ci][j]] == cell) {
+      for (int j = 0; j < s->cm.con_nv[ci]; ++j) {
+        if (s->cm.cell_of_var[s->cm.con_var[ci][j]] == cell) {
           has = true;
           break;
         }
       }
       if (has && unknown > 0) {
-        int rem = s->con_need[ci] - fixed_mines;
+        int rem = s->cm.con_need[ci] - fixed_mines;
         sum += solver_clamp01((long double)rem / (long double)unknown);
         ++cnt;
       }
     }
-    s->comp_fb_p[comp][lv] = cnt > 0 ? sum / (long double)cnt : 0.5L;
+    s->res.fb_p[comp][lv] = cnt > 0 ? sum / (long double)cnt : 0.5L;
   }
 }
 
@@ -533,8 +551,8 @@ static void analyze_start(const struct Board* b, struct Analysis* out) {
 
 static int count_known_mines(struct SolverScratch* s) {
   int known = 0;
-  for (int v = 0; v < s->nvar; ++v) {
-    if (s->vstate[v] == VAR_MINE) {
+  for (int v = 0; v < s->cm.nvar; ++v) {
+    if (s->cm.vstate[v] == VAR_MINE) {
       ++known;
     }
   }
@@ -546,7 +564,7 @@ static int count_interior(const struct Board* b, struct SolverScratch* s) {
   int ncells = b->width * b->height;
   int n = 0;
   for (int i = 0; i < ncells; ++i) {
-    if (!b->cells[i].revealed && s->var_of_cell[i] < 0) {
+    if (!b->cells[i].revealed && s->cm.var_of_cell[i] < 0) {
       ++n;
     }
   }
@@ -569,11 +587,11 @@ static void enumerate_all(struct SolverScratch* s, int ncomp, bool* exact_ok,
   /* total unknown frontier vars across EXACT components must fit MAXFLEN. */
   int exact_unknown = 0;
   for (int c = 0; c < ncomp; ++c) {
-    if (!s->comp_fallback[c]) {
-      exact_unknown += s->comp_nv[c];
+    if (!s->res.fallback[c]) {
+      exact_unknown += s->res.nv[c];
     } else {
-      for (int lv = 0; lv < s->comp_nv[c]; ++lv) {
-        *fallback_expected += s->comp_fb_p[c][lv];
+      for (int lv = 0; lv < s->res.nv[c]; ++lv) {
+        *fallback_expected += s->res.fb_p[c][lv];
       }
     }
   }
@@ -599,8 +617,8 @@ static void compute_interior_prob(const struct Board* b,
   int nexact = 0;
   if (ctx->exact_ok) {
     for (int c = 0; c < ctx->ncomp; ++c) {
-      if (!s->comp_fallback[c]) {
-        s->exact_idx[nexact++] = c;
+      if (!s->res.fallback[c]) {
+        s->dp.exact_idx[nexact++] = c;
       }
     }
   }
@@ -609,23 +627,23 @@ static void compute_interior_prob(const struct Board* b,
   long double zsum = 0.0L;
   long double interior_num = 0.0L;
   if (ctx->exact_ok) {
-    s->prefix[0][0] = 1.0L;
-    s->prefix_len[0] = 1;
+    s->dp.prefix[0][0] = 1.0L;
+    s->dp.prefix_len[0] = 1;
     for (int e = 0; e < nexact; ++e) {
-      int c = s->exact_idx[e];
-      conv(s->prefix[e], s->prefix_len[e], s->comp_shat[c], s->comp_nv[c] + 1,
-           s->prefix[e + 1], &s->prefix_len[e + 1]);
+      int c = s->dp.exact_idx[e];
+      conv(s->dp.prefix[e], s->dp.prefix_len[e], s->res.shat[c],
+           s->res.nv[c] + 1, s->dp.prefix[e + 1], &s->dp.prefix_len[e + 1]);
     }
-    s->suffix[nexact][0] = 1.0L;
-    s->suffix_len[nexact] = 1;
+    s->dp.suffix[nexact][0] = 1.0L;
+    s->dp.suffix_len[nexact] = 1;
     for (int e = nexact - 1; e >= 0; --e) {
-      int c = s->exact_idx[e];
-      conv(s->comp_shat[c], s->comp_nv[c] + 1, s->suffix[e + 1],
-           s->suffix_len[e + 1], s->suffix[e], &s->suffix_len[e]);
+      int c = s->dp.exact_idx[e];
+      conv(s->res.shat[c], s->res.nv[c] + 1, s->dp.suffix[e + 1],
+           s->dp.suffix_len[e + 1], s->dp.suffix[e], &s->dp.suffix_len[e]);
     }
     /* zsum = sum_F Wall[F] * C(interior_n, r_eff - F) */
-    for (int f = 0; f < s->prefix_len[nexact]; ++f) {
-      long double w = s->prefix[nexact][f];
+    for (int f = 0; f < s->dp.prefix_len[nexact]; ++f) {
+      long double w = s->dp.prefix[nexact][f];
       if (w == 0.0L) {
         continue;
       }
@@ -660,16 +678,16 @@ static void write_cell_probs(const struct Board* b, struct Analysis* out,
     if (b->cells[i].revealed) {
       continue;
     }
-    int v = s->var_of_cell[i];
+    int v = s->cm.var_of_cell[i];
     if (v < 0) {
       out->cells[i].is_frontier = false;
       out->cells[i].mine_prob = (double)ctx->interior_prob;
       continue;
     }
     out->cells[i].is_frontier = true;
-    if (s->vstate[v] == VAR_SAFE) {
+    if (s->cm.vstate[v] == VAR_SAFE) {
       out->cells[i].mine_prob = 0.0;
-    } else if (s->vstate[v] == VAR_MINE) {
+    } else if (s->cm.vstate[v] == VAR_MINE) {
       out->cells[i].mine_prob = 1.0;
     } else {
       out->cells[i].mine_prob = 0.5; /* overwritten below if exact */
@@ -679,29 +697,29 @@ static void write_cell_probs(const struct Board* b, struct Analysis* out,
   /* exact component marginals: P(v) = (sum_k mhat[v][k]*A_c[k]) / zsum */
   if (ctx->exact_ok && ctx->zsum > 0.0L) {
     for (int e = 0; e < ctx->nexact; ++e) {
-      int c = s->exact_idx[e];
+      int c = s->dp.exact_idx[e];
       /* O_c = prefix[e] (x) suffix[e+1] */
       int oclen = 0;
-      conv(s->prefix[e], s->prefix_len[e], s->suffix[e + 1],
-           s->suffix_len[e + 1], s->oc, &oclen);
+      conv(s->dp.prefix[e], s->dp.prefix_len[e], s->dp.suffix[e + 1],
+           s->dp.suffix_len[e + 1], s->dp.oc, &oclen);
       /* A_c[k] = sum_t oc[t] * C(interior_n, r_eff - k - t) */
       long double ac[CAP_VARS + 1];
-      for (int k = 0; k <= s->comp_nv[c]; ++k) {
+      for (int k = 0; k <= s->res.nv[c]; ++k) {
         long double sm = 0.0L;
         for (int t = 0; t < oclen; ++t) {
-          if (s->oc[t] == 0.0L) {
+          if (s->dp.oc[t] == 0.0L) {
             continue;
           }
-          sm += s->oc[t] * binom_ld(ctx->interior_n, ctx->r_eff - k - t);
+          sm += s->dp.oc[t] * binom_ld(ctx->interior_n, ctx->r_eff - k - t);
         }
         ac[k] = sm;
       }
-      for (int lv = 0; lv < s->comp_nv[c]; ++lv) {
+      for (int lv = 0; lv < s->res.nv[c]; ++lv) {
         long double num = 0.0L;
-        for (int k = 0; k <= s->comp_nv[c]; ++k) {
-          num += s->comp_mhat[c][lv][k] * ac[k];
+        for (int k = 0; k <= s->res.nv[c]; ++k) {
+          num += s->res.mhat[c][lv][k] * ac[k];
         }
-        int cell = s->cell_of_var[s->comp_gv[c][lv]];
+        int cell = s->cm.cell_of_var[s->res.gv[c][lv]];
         out->cells[cell].mine_prob = (double)solver_clamp01(num / ctx->zsum);
       }
     }
@@ -709,10 +727,10 @@ static void write_cell_probs(const struct Board* b, struct Analysis* out,
 
   /* fallback components: naive probs directly */
   for (int c = 0; c < ctx->ncomp; ++c) {
-    if (!ctx->exact_ok || s->comp_fallback[c]) {
-      for (int lv = 0; lv < s->comp_nv[c]; ++lv) {
-        int cell = s->cell_of_var[s->comp_gv[c][lv]];
-        out->cells[cell].mine_prob = (double)s->comp_fb_p[c][lv];
+    if (!ctx->exact_ok || s->res.fallback[c]) {
+      for (int lv = 0; lv < s->res.nv[c]; ++lv) {
+        int cell = s->cm.cell_of_var[s->res.gv[c][lv]];
+        out->cells[cell].mine_prob = (double)s->res.fb_p[c][lv];
       }
     }
   }
