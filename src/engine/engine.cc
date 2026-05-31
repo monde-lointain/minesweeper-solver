@@ -482,110 +482,130 @@ static void conv(const long double* a, int la, const long double* b, int lb,
   *lout = n;
 }
 
-/* ---- public entry ---------------------------------------------------------
- */
-void solver_analyze(const struct Board* b, struct Analysis* out,
-                    struct SolverScratch* s) {
-  memset(out, 0, sizeof *out);
-  out->best_x = -1;
-  out->best_y = -1;
+/* Transient values shared between analyze sub-steps (call-local, not part of
+ * the persistent scratch). */
+struct AnalyzeCtx {
+  int ncells;
+  int known_mines;
+  int ncomp;
+  bool exact_ok;
+  int interior_n;
+  int r_eff;
+  int nexact;
+  long double zsum;
+  long double interior_prob;
+};
 
+/* Terminal verdict (won/lost). Returns true if `out` was fully written. */
+static bool analyze_terminal(const struct Board* b, struct Analysis* out) {
   if (b->status == GAME_WON) {
     out->eval = EVAL_SOLVED;
-    return;
+    return true;
   }
   if (b->status == GAME_LOST) {
     out->eval = EVAL_LOST;
-    return;
+    return true;
   }
+  return false;
+}
 
+/* EVAL_START: nothing revealed yet -> uniform density, suggest a corner. */
+static void analyze_start(const struct Board* b, struct Analysis* out) {
   int ncells = b->width * b->height;
-
-  /* EVAL_START: nothing revealed yet -> uniform, suggest a corner. */
-  if (b->revealed_count == 0) {
-    long double uniform =
-        ncells > 0 ? (long double)b->mines / (long double)ncells : 0.0L;
-    for (int i = 0; i < ncells; ++i) {
-      if (!b->cells[i].revealed) {
-        out->cells[i].mine_prob = (double)uniform;
-        out->cells[i].is_frontier = false;
-      }
+  long double uniform =
+      ncells > 0 ? (long double)b->mines / (long double)ncells : 0.0L;
+  for (int i = 0; i < ncells; ++i) {
+    if (!b->cells[i].revealed) {
+      out->cells[i].mine_prob = (double)uniform;
+      out->cells[i].is_frontier = false;
     }
-    out->best_x = 0;
-    out->best_y = 0;
-    out->best_prob = (double)uniform;
-    out->best_is_interior = true;
-    out->interior_prob = (double)uniform;
-    out->interior_count = ncells;
-    out->eval = EVAL_START;
-    return;
   }
+  out->best_x = 0;
+  out->best_y = 0;
+  out->best_prob = (double)uniform;
+  out->best_is_interior = true;
+  out->interior_prob = (double)uniform;
+  out->interior_count = ncells;
+  out->eval = EVAL_START;
+}
 
-  build_constraints(b, s);
-  deduce(s);
-
-  int known_mines = 0;
+static int count_known_mines(struct SolverScratch* s) {
+  int known = 0;
   for (int v = 0; v < s->nvar; ++v) {
     if (s->vstate[v] == VAR_MINE) {
-      ++known_mines;
+      ++known;
     }
   }
+  return known;
+}
 
-  int ncomp = build_components(s);
-  bool exact_ok = (ncomp <= MAXCOMP);
-
-  /* interior cells: covered, not a frontier variable. */
-  int interior_count = 0;
+/* interior cells: covered, not a frontier variable. */
+static int count_interior(const struct Board* b, struct SolverScratch* s) {
+  int ncells = b->width * b->height;
+  int n = 0;
   for (int i = 0; i < ncells; ++i) {
     if (!b->cells[i].revealed && s->var_of_cell[i] < 0) {
-      ++interior_count;
+      ++n;
     }
   }
+  return n;
+}
 
-  /* enumerate components */
-  long double fallback_expected = 0.0L;
-  if (exact_ok) {
-    for (int c = 0; c < ncomp; ++c) {
-      if (!enumerate_component(s, c)) {
-        fallback_component(s, c);
-      }
-    }
-    /* total unknown frontier vars across EXACT components must fit MAXFLEN. */
-    int exact_unknown = 0;
-    for (int c = 0; c < ncomp; ++c) {
-      if (!s->comp_fallback[c]) {
-        exact_unknown += s->comp_nv[c];
-      } else {
-        for (int lv = 0; lv < s->comp_nv[c]; ++lv) {
-          fallback_expected += s->comp_fb_p[c][lv];
-        }
-      }
-    }
-    if (exact_unknown >= MAXFLEN) {
-      exact_ok = false;
+/* Enumerate every component (exact, else naive fallback). May clear *exact_ok
+ * if the exact frontier overflows MAXFLEN; accumulates fallback mine mass. */
+static void enumerate_all(struct SolverScratch* s, int ncomp, bool* exact_ok,
+                          long double* fallback_expected) {
+  *fallback_expected = 0.0L;
+  if (!*exact_ok) {
+    return;
+  }
+  for (int c = 0; c < ncomp; ++c) {
+    if (!enumerate_component(s, c)) {
+      fallback_component(s, c);
     }
   }
+  /* total unknown frontier vars across EXACT components must fit MAXFLEN. */
+  int exact_unknown = 0;
+  for (int c = 0; c < ncomp; ++c) {
+    if (!s->comp_fallback[c]) {
+      exact_unknown += s->comp_nv[c];
+    } else {
+      for (int lv = 0; lv < s->comp_nv[c]; ++lv) {
+        *fallback_expected += s->comp_fb_p[c][lv];
+      }
+    }
+  }
+  if (exact_unknown >= MAXFLEN) {
+    *exact_ok = false;
+  }
+}
 
-  int interior_n = interior_count;
-  int rem_mines = b->mines - known_mines;
+/* Combine exact components + interior under the global mine count: prefix/suffix
+ * convolution DP -> ctx->{r_eff, nexact, zsum, interior_prob}. */
+static void compute_interior_prob(const struct Board* b, struct SolverScratch* s,
+                                  struct AnalyzeCtx* ctx,
+                                  long double fallback_expected) {
+  int rem_mines = b->mines - ctx->known_mines;
   /* remove fallback components' expected mines from the budget the exact DP +
    * interior share. */
   int r_eff = rem_mines - (int)llroundl(fallback_expected);
   r_eff = (r_eff < 0) ? 0 : r_eff;
+  ctx->r_eff = r_eff;
 
   /* Build prefix/suffix convolutions over EXACT components only. */
   int nexact = 0;
-  if (exact_ok) {
-    for (int c = 0; c < ncomp; ++c) {
+  if (ctx->exact_ok) {
+    for (int c = 0; c < ctx->ncomp; ++c) {
       if (!s->comp_fallback[c]) {
         s->exact_idx[nexact++] = c;
       }
     }
   }
+  ctx->nexact = nexact;
 
   long double zsum = 0.0L;
   long double interior_num = 0.0L;
-  if (exact_ok) {
+  if (ctx->exact_ok) {
     s->prefix[0][0] = 1.0L;
     s->prefix_len[0] = 1;
     for (int e = 0; e < nexact; ++e) {
@@ -606,21 +626,29 @@ void solver_analyze(const struct Board* b, struct Analysis* out,
       if (w == 0.0L) {
         continue;
       }
-      long double bcoef = binom_ld(interior_n, r_eff - f);
+      long double bcoef = binom_ld(ctx->interior_n, r_eff - f);
       zsum += w * bcoef;
       interior_num += w * bcoef * (long double)(r_eff - f);
     }
   }
+  ctx->zsum = zsum;
 
   long double interior_prob = 0.0L;
-  if (exact_ok && zsum > 0.0L && interior_n > 0) {
-    interior_prob = interior_num / (zsum * (long double)interior_n);
-  } else if (interior_n > 0) {
+  if (ctx->exact_ok && zsum > 0.0L && ctx->interior_n > 0) {
+    interior_prob = interior_num / (zsum * (long double)ctx->interior_n);
+  } else if (ctx->interior_n > 0) {
     /* fallback: uniform remaining density */
-    interior_prob = clamp01((long double)r_eff / (long double)interior_n);
+    interior_prob = clamp01((long double)r_eff / (long double)ctx->interior_n);
   }
+  ctx->interior_prob = interior_prob;
+}
 
-  /* ---- write per-cell probabilities ------------------------------------- */
+/* Write every covered cell's P(mine): deduced/interior baseline, then exact
+ * component marginals, then naive fallback components. */
+static void write_cell_probs(const struct Board* b, struct Analysis* out,
+                             struct SolverScratch* s,
+                             const struct AnalyzeCtx* ctx) {
+  int ncells = ctx->ncells;
   for (int i = 0; i < ncells; ++i) {
     out->cells[i].mine_prob = 0.0;
     out->cells[i].is_frontier = false;
@@ -636,7 +664,7 @@ void solver_analyze(const struct Board* b, struct Analysis* out,
     int v = s->var_of_cell[i];
     if (v < 0) {
       out->cells[i].is_frontier = false;
-      out->cells[i].mine_prob = (double)interior_prob;
+      out->cells[i].mine_prob = (double)ctx->interior_prob;
       continue;
     }
     out->cells[i].is_frontier = true;
@@ -650,8 +678,8 @@ void solver_analyze(const struct Board* b, struct Analysis* out,
   }
 
   /* exact component marginals: P(v) = (sum_k mhat[v][k]*A_c[k]) / zsum */
-  if (exact_ok && zsum > 0.0L) {
-    for (int e = 0; e < nexact; ++e) {
+  if (ctx->exact_ok && ctx->zsum > 0.0L) {
+    for (int e = 0; e < ctx->nexact; ++e) {
       int c = s->exact_idx[e];
       /* O_c = prefix[e] (x) suffix[e+1] */
       int oclen = 0;
@@ -665,7 +693,7 @@ void solver_analyze(const struct Board* b, struct Analysis* out,
           if (s->oc[t] == 0.0L) {
             continue;
           }
-          sm += s->oc[t] * binom_ld(interior_n, r_eff - k - t);
+          sm += s->oc[t] * binom_ld(ctx->interior_n, ctx->r_eff - k - t);
         }
         ac[k] = sm;
       }
@@ -675,22 +703,26 @@ void solver_analyze(const struct Board* b, struct Analysis* out,
           num += s->comp_mhat[c][lv][k] * ac[k];
         }
         int cell = s->cell_of_var[s->comp_gv[c][lv]];
-        out->cells[cell].mine_prob = (double)clamp01(num / zsum);
+        out->cells[cell].mine_prob = (double)clamp01(num / ctx->zsum);
       }
     }
   }
 
   /* fallback components: naive probs directly */
-  for (int c = 0; c < ncomp; ++c) {
-    if (!exact_ok || s->comp_fallback[c]) {
+  for (int c = 0; c < ctx->ncomp; ++c) {
+    if (!ctx->exact_ok || s->comp_fallback[c]) {
       for (int lv = 0; lv < s->comp_nv[c]; ++lv) {
         int cell = s->cell_of_var[s->comp_gv[c][lv]];
         out->cells[cell].mine_prob = (double)s->comp_fb_p[c][lv];
       }
     }
   }
+}
 
-  /* forced flags + best move (row-major first on ties) */
+/* Set forced flags, pick the lowest-risk move (row-major first on ties), and
+ * derive the eval verdict. */
+static void pick_best_move(const struct Board* b, struct Analysis* out,
+                           const struct AnalyzeCtx* ctx) {
   double best = 2.0;
   int best_x = -1;
   int best_y = -1;
@@ -717,8 +749,8 @@ void solver_analyze(const struct Board* b, struct Analysis* out,
     }
   }
 
-  out->interior_count = interior_n;
-  out->interior_prob = (double)interior_prob;
+  out->interior_count = ctx->interior_n;
+  out->interior_prob = (double)ctx->interior_prob;
   out->best_x = best_x;
   out->best_y = best_y;
   out->best_prob = best_x >= 0 ? best : 0.0;
@@ -730,4 +762,38 @@ void solver_analyze(const struct Board* b, struct Analysis* out,
   } else {
     out->eval = EVAL_GUESS;
   }
+}
+
+/* ---- public entry ---------------------------------------------------------
+ */
+void solver_analyze(const struct Board* b, struct Analysis* out,
+                    struct SolverScratch* s) {
+  memset(out, 0, sizeof *out);
+  out->best_x = -1;
+  out->best_y = -1;
+
+  if (analyze_terminal(b, out)) {
+    return;
+  }
+  if (b->revealed_count == 0) {
+    analyze_start(b, out);
+    return;
+  }
+
+  build_constraints(b, s);
+  deduce(s);
+
+  struct AnalyzeCtx ctx;
+  ctx.ncells = b->width * b->height;
+  ctx.known_mines = count_known_mines(s);
+  ctx.ncomp = build_components(s);
+  ctx.exact_ok = (ctx.ncomp <= MAXCOMP);
+  ctx.interior_n = count_interior(b, s);
+
+  long double fallback_expected = 0.0L;
+  enumerate_all(s, ctx.ncomp, &ctx.exact_ok, &fallback_expected);
+
+  compute_interior_prob(b, s, &ctx, fallback_expected);
+  write_cell_probs(b, out, s, &ctx);
+  pick_best_move(b, out, &ctx);
 }
