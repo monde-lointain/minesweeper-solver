@@ -18,6 +18,17 @@
 #include "minesweeper/ui.h"
 #include "solver/engine.h"
 
+/* Board fields the cached analysis depends on. When this tuple changes the
+ * analysis is recomputed; flags are deliberately excluded (the engine ignores
+ * them). */
+struct AnalysisKey {
+  int status;
+  int revealed_count;
+  int width;
+  int height;
+  int mines;
+};
+
 struct AppState {
   SDL_Window* window;
   SDL_Renderer* renderer;
@@ -46,8 +57,9 @@ struct AppState {
 
   /* --- solver additions --- */
   struct SolverScratch* scratch; /* engine working memory (per-app instance) */
-  struct Analysis analysis;      /* recomputed when the revealed set changes */
-  bool overlay_on;               /* F10 toggles the analysis overlay */
+  struct Analysis analysis;      /* recomputed when analysis_key changes */
+  struct AnalysisKey analysis_key; /* last-analyzed board signature */
+  bool overlay_on;                 /* F10 toggles the analysis overlay */
 };
 
 /* Allocate + initialize: SDL, window/renderer, ImGui, config, assets, first

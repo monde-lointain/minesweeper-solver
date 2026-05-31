@@ -116,7 +116,6 @@ static void app_new_game(struct AppState* s) {
   g_right_down = false;
   g_chorded = false;
   app_resize(s);
-  app_reanalyze(s); /* (3) */
 }
 
 /* Level index for best-times (only B/I/E qualify). -1 for Custom. */
@@ -339,7 +338,6 @@ static void app_mouse_up(struct AppState* s, const SDL_Event* e) {
       result = game_chord(&s->board, cx, cy);
       app_start_timer(s);
       app_after_action(s, result);
-      app_reanalyze(s); /* (3) */
     }
     s->chord_active = false;
     g_chorded = true;
@@ -350,7 +348,6 @@ static void app_mouse_up(struct AppState* s, const SDL_Event* e) {
       result = game_reveal(&s->board, cx, cy);
       app_start_timer(s);
       app_after_action(s, result);
-      app_reanalyze(s); /* (3) */
     }
     s->pressing_board = false;
     s->press_x = -1;
@@ -518,6 +515,21 @@ SDL_AppResult app_iterate(struct AppState* s) {
   g_menu_bar_h = (int)menu_h;
   ui_dialogs(&s->settings, &actions, &s->dialogs);
   app_apply_actions(s, &actions);
+
+  /* (3) recompute the cached analysis only when the board signature changes.
+   * This is the single point that keeps s->analysis fresh, replacing per-
+   * mutation calls. Invariant: analysis-relevant board state is fully captured
+   * by this 5-tuple (flags excluded — the engine ignores them). */
+  struct AnalysisKey key;
+  key.status = s->board.status;
+  key.revealed_count = s->board.revealed_count;
+  key.width = s->board.width;
+  key.height = s->board.height;
+  key.mines = s->board.mines;
+  if (memcmp(&key, &s->analysis_key, sizeof key) != 0) {
+    app_reanalyze(s);
+    s->analysis_key = key;
+  }
 
   /* Keep window sized to the (possibly changed) menu-bar height. */
   app_resize(s);
