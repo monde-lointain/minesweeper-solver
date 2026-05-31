@@ -32,10 +32,15 @@ enum { VAR_UNKNOWN = -1, VAR_SAFE = 0, VAR_MINE = 1 };
 
 enum {
   MAXCELL = BOARD_MAX_CELLS,
-  CAP_VARS = 24, /* per-component enumeration cap */
-  MAXCOMP = 128, /* exact-DP component cap */
-  MAXFLEN = 256, /* exact-DP total-frontier-mine cap + 1 */
-  MAXVARCON = 8  /* a covered cell borders <= 8 numbered cells */
+  CAP_VARS = 24,      /* direct-enumeration cap (unchanged path) */
+  MAX_COMP_VARS = 64, /* Gaussian-reduction exact-solve cap (storage) */
+  MAXCOMP = 128,      /* exact-DP component cap */
+  MAXFLEN = 256,      /* exact-DP total-frontier-mine cap + 1 */
+  MAXVARCON = 8,      /* a covered cell borders <= 8 numbered cells */
+  /* compact ragged result storage: total exact var-slots bounded by Sigma nv_c
+   * <= MAXCELL; total mhat slots by Sigma nv_c*(nv_c+1) <= MAXCELL*(MCV+1). */
+  MHAT_FLAT_MAX = MAXCELL * (MAX_COMP_VARS + 1),
+  SHAT_FLAT_MAX = MAXCELL + MAXCOMP
 };
 
 static const long double EPS = 1e-9L;
@@ -73,15 +78,24 @@ struct CompLayout {
   int label[MAXCELL]; /* uf root -> component id (build_components scratch) */
 };
 
-/* per-component normalized enumeration results */
+/* per-component normalized enumeration results, COMPACT RAGGED: per-component
+ * data lives in flat arrays indexed by a per-component offset, sized by the
+ * total var budget (Sigma nv_c) rather than the dense MAXCOMP x MAX_COMP_VARS
+ * worst case. var_off indexes gv/fb_p (one slot per var); shat_off indexes shat
+ * (nv+1 slots); mhat_off indexes mhat (nv*(nv+1) slots, stride nv+1). shat/mhat
+ * offsets are assigned only to EXACT components (fallback comps can exceed
+ * MAX_COMP_VARS and need neither). Access via the res_* helpers below. */
 /* NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding) */
 struct CompResults {
   int nv[MAXCOMP];
-  int gv[MAXCOMP][CAP_VARS]; /* local -> global var */
-  long double shat[MAXCOMP][CAP_VARS + 1];
-  long double mhat[MAXCOMP][CAP_VARS][CAP_VARS + 1];
+  int var_off[MAXCOMP];  /* -> gv_flat / fb_p_flat */
+  int shat_off[MAXCOMP]; /* -> shat_flat (exact only) */
+  int mhat_off[MAXCOMP]; /* -> mhat_flat (exact only) */
   bool fallback[MAXCOMP];
-  long double fb_p[MAXCOMP][CAP_VARS]; /* naive prob if fallback */
+  int gv_flat[MAXCELL];           /* local -> global var */
+  long double fb_p_flat[MAXCELL]; /* naive prob if fallback */
+  long double shat_flat[SHAT_FLAT_MAX];
+  long double mhat_flat[MHAT_FLAT_MAX];
 };
 
 /* global-combination DP scratch + analyze-local combine buffers */
@@ -111,11 +125,12 @@ struct EnumScratch {
   int con_need[MAXCELL];
   int con_sum[MAXCELL];
   int con_un[MAXCELL]; /* unassigned vars remaining in the constraint */
-  int varcon[CAP_VARS][MAXVARCON];
-  int varcon_n[CAP_VARS];
-  int assign[CAP_VARS];
-  long double sol[CAP_VARS + 1];            /* per mine-count k: #solutions */
-  long double mine[CAP_VARS][CAP_VARS + 1]; /* per (var,k): mine incidence */
+  int varcon[MAX_COMP_VARS][MAXVARCON];
+  int varcon_n[MAX_COMP_VARS];
+  int assign[MAX_COMP_VARS];
+  long double sol[MAX_COMP_VARS + 1]; /* per mine-count k: #solutions */
+  long double mine[MAX_COMP_VARS]
+                  [MAX_COMP_VARS + 1]; /* per (var,k): incidence */
   int nodes;
   bool overflow;
 };
@@ -128,6 +143,20 @@ struct SolverScratch {
   struct CombineDP dp;
   struct EnumScratch ec;
 };
+
+/* Compact-ragged accessors: per-component views into the flat result arrays. */
+static inline int* res_gv(struct SolverScratch* s, int c) {
+  return &s->res.gv_flat[s->res.var_off[c]];
+}
+static inline long double* res_fbp(struct SolverScratch* s, int c) {
+  return &s->res.fb_p_flat[s->res.var_off[c]];
+}
+static inline long double* res_shat(struct SolverScratch* s, int c) {
+  return &s->res.shat_flat[s->res.shat_off[c]];
+}
+static inline long double* res_mhat(struct SolverScratch* s, int c, int lv) {
+  return &s->res.mhat_flat[s->res.mhat_off[c] + lv * (s->res.nv[c] + 1)];
+}
 
 struct SolverScratch* solver_scratch_create(void) {
   return (struct SolverScratch*)calloc(1, sizeof(struct SolverScratch));
@@ -316,6 +345,43 @@ static int build_components(struct SolverScratch* s) {
 
 /* ---- step 4: per-component enumeration ------------------------------------
  */
+
+/* Pre-pass: count vars per component and assign compact var offsets + local
+ * indices + gv_flat, iterating in var-id order so each component's local
+ * numbering matches the original gather order (keeps exact marginals
+ * identical). Initializes per-component result bookkeeping. */
+static void layout_components(struct SolverScratch* s, int ncomp) {
+  for (int c = 0; c < ncomp; ++c) {
+    s->res.nv[c] = 0;
+    s->res.fallback[c] = false;
+    s->res.shat_off[c] = 0;
+    s->res.mhat_off[c] = 0;
+  }
+  for (int v = 0; v < s->cm.nvar; ++v) {
+    if (s->cm.vstate[v] == VAR_UNKNOWN && s->comp.of_var[v] >= 0) {
+      ++s->res.nv[s->comp.of_var[v]];
+    }
+  }
+  int off = 0;
+  for (int c = 0; c < ncomp; ++c) {
+    s->res.var_off[c] = off;
+    off += s->res.nv[c];
+  }
+  int fill[MAXCOMP];
+  for (int c = 0; c < ncomp; ++c) {
+    fill[c] = 0;
+  }
+  for (int v = 0; v < s->cm.nvar; ++v) {
+    if (s->cm.vstate[v] != VAR_UNKNOWN || s->comp.of_var[v] < 0) {
+      continue;
+    }
+    int c = s->comp.of_var[v];
+    int lv = fill[c]++;
+    s->comp.local_of_var[v] = lv;
+    s->res.gv_flat[s->res.var_off[c] + lv] = v;
+  }
+}
+
 static void enum_dfs(struct SolverScratch* s, int i, int total) {
   if (s->ec.overflow) {
     return;
@@ -360,24 +426,22 @@ static void enum_dfs(struct SolverScratch* s, int i, int total) {
   }
 }
 
-/* Build the local model for component `comp` and enumerate it. Returns false on
- * fallback (over cap / budget), true on exact success. */
-static bool enumerate_component(struct SolverScratch* s, int comp) {
-  /* gather local vars */
-  s->ec.nv = 0;
-  for (int v = 0; v < s->cm.nvar; ++v) {
-    if (s->comp.of_var[v] == comp) {
-      if (s->ec.nv >= CAP_VARS) {
-        return false; /* too many vars: fallback */
-      }
-      s->comp.local_of_var[v] = s->ec.nv;
-      s->res.gv[comp][s->ec.nv] = v;
-      ++s->ec.nv;
-    }
+/* Build the local model for component `comp` (vars + local indices precomputed
+ * by layout_components) and enumerate it directly. Returns false on fallback
+ * (over the direct cap / node budget / infeasible), true on exact success (and
+ * then reserves this component's compact shat/mhat slots, advancing the running
+ * offsets). The Gaussian-reduction path for CAP_VARS < nv <= MAX_COMP_VARS is
+ * added in sub-step 2. */
+static bool enumerate_component(struct SolverScratch* s, int comp,
+                                int* shat_used, int* mhat_used) {
+  int nv = s->res.nv[comp];
+  if (nv > CAP_VARS) {
+    return false; /* too many vars: fallback */
   }
+  s->ec.nv = nv;
   /* gather local constraints */
   s->ec.ncon = 0;
-  for (int lv = 0; lv < s->ec.nv; ++lv) {
+  for (int lv = 0; lv < nv; ++lv) {
     s->ec.varcon_n[lv] = 0;
   }
   for (int ci = 0; ci < s->cm.ncon; ++ci) {
@@ -410,11 +474,11 @@ static bool enumerate_component(struct SolverScratch* s, int comp) {
     ++s->ec.ncon;
   }
   /* init enumeration state */
-  for (int k = 0; k <= s->ec.nv; ++k) {
+  for (int k = 0; k <= nv; ++k) {
     s->ec.sol[k] = 0.0L;
   }
-  for (int lv = 0; lv < s->ec.nv; ++lv) {
-    for (int k = 0; k <= s->ec.nv; ++k) {
+  for (int lv = 0; lv < nv; ++lv) {
+    for (int k = 0; k <= nv; ++k) {
       s->ec.mine[lv][k] = 0.0L;
     }
   }
@@ -428,45 +492,45 @@ static bool enumerate_component(struct SolverScratch* s, int comp) {
   if (s->ec.overflow) {
     return false;
   }
-  /* normalize into comp tables */
+  /* normalize into compact comp tables */
   long double total = 0.0L;
-  for (int k = 0; k <= s->ec.nv; ++k) {
+  for (int k = 0; k <= nv; ++k) {
     total += s->ec.sol[k];
   }
   if (total <= 0.0L) {
     return false; /* infeasible component (shouldn't happen): fallback */
   }
-  s->res.nv[comp] = s->ec.nv;
   s->res.fallback[comp] = false;
-  for (int k = 0; k <= s->ec.nv; ++k) {
-    s->res.shat[comp][k] = s->ec.sol[k] / total;
+  s->res.shat_off[comp] = *shat_used;
+  *shat_used += nv + 1;
+  s->res.mhat_off[comp] = *mhat_used;
+  *mhat_used += nv * (nv + 1);
+  long double* shat = res_shat(s, comp);
+  for (int k = 0; k <= nv; ++k) {
+    shat[k] = s->ec.sol[k] / total;
   }
-  for (int lv = 0; lv < s->ec.nv; ++lv) {
-    for (int k = 0; k <= s->ec.nv; ++k) {
-      s->res.mhat[comp][lv][k] = s->ec.mine[lv][k] / total;
+  for (int lv = 0; lv < nv; ++lv) {
+    long double* mh = res_mhat(s, comp, lv);
+    for (int k = 0; k <= nv; ++k) {
+      mh[k] = s->ec.mine[lv][k] / total;
     }
   }
   return true;
 }
 
-/* Naive fallback probabilities for an over-budget component. */
+/* Naive per-var fallback for an over-budget component. Models the first
+ * min(nv, CAP_VARS) vars (slots reserved by layout_components, in var-id
+ * order); the remainder stay at the deduced default and are clamped by Fix A.
+ */
 static void fallback_component(struct SolverScratch* s, int comp) {
   s->res.fallback[comp] = true;
-  /* comp_nv / comp_gv already filled up to the cap; recount fully */
-  int nv = 0;
-  for (int v = 0; v < s->cm.nvar; ++v) {
-    if (s->comp.of_var[v] == comp) {
-      if (nv < CAP_VARS) {
-        s->res.gv[comp][nv] = v;
-      }
-      ++nv;
-    }
-  }
+  int nv = s->res.nv[comp];
   int use = nv < CAP_VARS ? nv : CAP_VARS;
   s->res.nv[comp] = use;
+  int* gv = res_gv(s, comp);
+  long double* fbp = res_fbp(s, comp);
   for (int lv = 0; lv < use; ++lv) {
-    int v = s->res.gv[comp][lv];
-    int cell = s->cm.cell_of_var[v];
+    int cell = s->cm.cell_of_var[gv[lv]];
     long double sum = 0.0L;
     int cnt = 0;
     for (int ci = 0; ci < s->cm.ncon; ++ci) {
@@ -486,7 +550,7 @@ static void fallback_component(struct SolverScratch* s, int comp) {
         ++cnt;
       }
     }
-    s->res.fb_p[comp][lv] = cnt > 0 ? sum / (long double)cnt : 0.5L;
+    fbp[lv] = cnt > 0 ? sum / (long double)cnt : 0.5L;
   }
 }
 
@@ -585,8 +649,11 @@ static void enumerate_all(struct SolverScratch* s, int ncomp, bool* exact_ok,
   if (!*exact_ok) {
     return;
   }
+  layout_components(s, ncomp);
+  int shat_used = 0;
+  int mhat_used = 0;
   for (int c = 0; c < ncomp; ++c) {
-    if (!enumerate_component(s, c)) {
+    if (!enumerate_component(s, c, &shat_used, &mhat_used)) {
       fallback_component(s, c);
     }
   }
@@ -601,8 +668,9 @@ static void enumerate_all(struct SolverScratch* s, int ncomp, bool* exact_ok,
       exact_unknown += s->res.nv[c];
     } else {
       fb_unknown += s->res.nv[c];
+      long double* fbp = res_fbp(s, c);
       for (int lv = 0; lv < s->res.nv[c]; ++lv) {
-        *fallback_expected += s->res.fb_p[c][lv];
+        *fallback_expected += fbp[lv];
       }
     }
   }
@@ -622,10 +690,11 @@ static void build_fbdist(struct SolverScratch* s, int ncomp) {
     if (!s->res.fallback[c]) {
       continue;
     }
+    long double* fbp = res_fbp(s, c);
     for (int lv = 0; lv < s->res.nv[c]; ++lv) {
       long double bern[2];
-      bern[0] = 1.0L - s->res.fb_p[c][lv];
-      bern[1] = s->res.fb_p[c][lv];
+      bern[0] = 1.0L - fbp[lv];
+      bern[1] = fbp[lv];
       int outlen = 0;
       conv(s->dp.fbdist, s->dp.fbdist_len, bern, 2, s->dp.wall, &outlen);
       for (int i = 0; i < outlen; ++i) {
@@ -672,14 +741,14 @@ static void compute_interior_prob(const struct Board* b,
     s->dp.prefix_len[0] = 1;
     for (int e = 0; e < nexact; ++e) {
       int c = s->dp.exact_idx[e];
-      conv(s->dp.prefix[e], s->dp.prefix_len[e], s->res.shat[c],
+      conv(s->dp.prefix[e], s->dp.prefix_len[e], res_shat(s, c),
            s->res.nv[c] + 1, s->dp.prefix[e + 1], &s->dp.prefix_len[e + 1]);
     }
     s->dp.suffix[nexact][0] = 1.0L;
     s->dp.suffix_len[nexact] = 1;
     for (int e = nexact - 1; e >= 0; --e) {
       int c = s->dp.exact_idx[e];
-      conv(s->res.shat[c], s->res.nv[c] + 1, s->dp.suffix[e + 1],
+      conv(res_shat(s, c), s->res.nv[c] + 1, s->dp.suffix[e + 1],
            s->dp.suffix_len[e + 1], s->dp.suffix[e], &s->dp.suffix_len[e]);
     }
     /* Wall = (exact prefix) (x) fbdist = full frontier-mine distribution. */
@@ -752,7 +821,7 @@ static void write_cell_probs(const struct Board* b, struct Analysis* out,
       int oc2len = 0;
       conv(s->dp.oc, oclen, s->dp.fbdist, s->dp.fbdist_len, s->dp.oc2, &oc2len);
       /* A_c[k] = sum_t oc2[t] * C(interior_n, r_eff - k - t) */
-      long double ac[CAP_VARS + 1];
+      long double ac[MAX_COMP_VARS + 1];
       for (int k = 0; k <= s->res.nv[c]; ++k) {
         long double sm = 0.0L;
         for (int t = 0; t < oc2len; ++t) {
@@ -763,12 +832,14 @@ static void write_cell_probs(const struct Board* b, struct Analysis* out,
         }
         ac[k] = sm;
       }
+      int* gv = res_gv(s, c);
       for (int lv = 0; lv < s->res.nv[c]; ++lv) {
+        long double* mh = res_mhat(s, c, lv);
         long double num = 0.0L;
         for (int k = 0; k <= s->res.nv[c]; ++k) {
-          num += s->res.mhat[c][lv][k] * ac[k];
+          num += mh[k] * ac[k];
         }
-        int cell = s->cm.cell_of_var[s->res.gv[c][lv]];
+        int cell = s->cm.cell_of_var[gv[lv]];
         out->cells[cell].mine_prob = (double)solver_clamp01(num / ctx->zsum);
       }
     }
@@ -777,9 +848,11 @@ static void write_cell_probs(const struct Board* b, struct Analysis* out,
   /* fallback components: naive probs directly */
   for (int c = 0; c < ctx->ncomp; ++c) {
     if (!ctx->exact_ok || s->res.fallback[c]) {
+      int* gv = res_gv(s, c);
+      long double* fbp = res_fbp(s, c);
       for (int lv = 0; lv < s->res.nv[c]; ++lv) {
-        int cell = s->cm.cell_of_var[s->res.gv[c][lv]];
-        out->cells[cell].mine_prob = (double)s->res.fb_p[c][lv];
+        int cell = s->cm.cell_of_var[gv[lv]];
+        out->cells[cell].mine_prob = (double)fbp[lv];
       }
     }
   }
