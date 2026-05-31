@@ -35,15 +35,15 @@ struct Analysis {
   int best_y;
   double best_prob;     /* P(mine) of best move (0 when forced safe) */
   double interior_prob; /* uniform P(mine) for interior cells (eval line) */
-  int interior_count;    /* number of interior cells (0 => none) */
-  int eval;              /* enum SolverEval */
+  int interior_count;   /* number of interior cells (0 => none) */
+  int eval;             /* enum SolverEval */
 };
 
 /* Per-analysis working memory (~2.5 MB), heap-allocated and opaque. The engine
  * is reentrant: give each thread/solver instance its own scratch; never share
  * one handle across threads. */
 struct SolverScratch;
-struct SolverScratch* solver_scratch_create(void); /* calloc; NULL on OOM */
+struct SolverScratch* solver_scratch_create(void);    /* calloc; NULL on OOM */
 void solver_scratch_destroy(struct SolverScratch* s); /* free; NULL-safe */
 
 /* Analyze the visible board state into `out`, using `s` as scratch. Pure

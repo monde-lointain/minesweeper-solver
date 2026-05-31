@@ -46,7 +46,11 @@ static const int NODE_BUDGET = 5000000;
  * the original file-scope/BSS semantics: every field is re-initialized before
  * it is read each call (or read only within the [0,len) window written this
  * call), so reuse across calls is safe and a per-call memset is unnecessary.
+ *
+ * Fields are grouped by pipeline role, not packed by alignment: the ~35 padding
+ * bytes are irrelevant in a ~2.5 MB struct, and grouping aids maintenance.
  */
+/* NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding) */
 struct SolverScratch {
   /* constraint / variable model */
   int var_of_cell[MAXCELL]; /* cell idx -> var id, or -1 */
@@ -571,9 +575,10 @@ static void enumerate_all(struct SolverScratch* s, int ncomp, bool* exact_ok,
   }
 }
 
-/* Combine exact components + interior under the global mine count: prefix/suffix
- * convolution DP -> ctx->{r_eff, nexact, zsum, interior_prob}. */
-static void compute_interior_prob(const struct Board* b, struct SolverScratch* s,
+/* Combine exact components + interior under the global mine count:
+ * prefix/suffix convolution DP -> ctx->{r_eff, nexact, zsum, interior_prob}. */
+static void compute_interior_prob(const struct Board* b,
+                                  struct SolverScratch* s,
                                   struct AnalyzeCtx* ctx,
                                   long double fallback_expected) {
   int rem_mines = b->mines - ctx->known_mines;
@@ -629,7 +634,8 @@ static void compute_interior_prob(const struct Board* b, struct SolverScratch* s
     interior_prob = interior_num / (zsum * (long double)ctx->interior_n);
   } else if (ctx->interior_n > 0) {
     /* fallback: uniform remaining density */
-    interior_prob = solver_clamp01((long double)r_eff / (long double)ctx->interior_n);
+    interior_prob =
+        solver_clamp01((long double)r_eff / (long double)ctx->interior_n);
   }
   ctx->interior_prob = interior_prob;
 }

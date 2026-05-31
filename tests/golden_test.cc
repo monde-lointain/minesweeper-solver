@@ -15,14 +15,13 @@
  *   GOLDEN_CAPTURE=1 ./build/tests/golden_test
  * then paste the printed block over kExpected[] below.
  */
-#include "solver/engine.h"
-
 #include <gtest/gtest.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "minesweeper/game.h"
+#include "solver/engine.h"
 
 namespace {
 
@@ -34,12 +33,14 @@ struct Spec {
   int h;
   int mines;
   unsigned int seed;
-  unsigned int reveal_bit; /* mask vs prng to decide reveal of a non-mine cell */
+  unsigned int
+      reveal_bit; /* mask vs prng to decide reveal of a non-mine cell */
 };
 
 /* Corpus: large/dense boards that the small-exact oracle cannot cover. The
  * first four are expert-sized (480 cells) so row/region frontiers exceed
- * CAP_VARS=24 and force the fallback path; the last is a small overlap sanity. */
+ * CAP_VARS=24 and force the fallback path; the last is a small overlap sanity.
+ */
 const Spec kCorpus[] = {
     {"expert_dense_a", 30, 16, 99, 0x000A11CEu, 1u},
     {"expert_mid_b", 30, 16, 60, 0x00000B0Bu, 2u},
@@ -140,13 +141,19 @@ void measure(const Board* b, const Analysis* a, Stats* st) {
   }
 }
 
-/* --- BAKED BASELINE (captured from current solver_analyze) ----------------- */
+/* --- BAKED BASELINE (captured from current solver_analyze) -----------------
+ */
 const Stats kExpected[] = {
-    {1, 27, 0, 10, 9, 13, 0, 1, 145.5673611111111, 35362.076388888891, 79.282843846450618},      /* expert_dense_a */
-    {2, 15, 0, 20, 0, 20, 0.20000000000000001, 1, 141.50805555555556, 34087.257222222222, 79.797755478395061}, /* expert_mid_b */
-    {1, 18, 12, 40, 7, 2, 0, 0.48360655737704916, 107.18626984126976, 26138.610751366119, 50.20391470115856},  /* expert_sparse_c */
-    {1, 0, 24, 3, 5, 6, 0, 1, 140.61388888888888, 34863.770833333328, 72.038757716049389},       /* tall_expert_d */
-    {1, 2, 0, 5, 3, 1, 0, 0.20000000000000001, 16.669444444444441, 713.47500000000002, 7.3141280864197551},    /* small_e */
+    {1, 27, 0, 10, 9, 13, 0, 1, 145.5673611111111, 35362.076388888891,
+     79.282843846450618}, /* expert_dense_a */
+    {2, 15, 0, 20, 0, 20, 0.20000000000000001, 1, 141.50805555555556,
+     34087.257222222222, 79.797755478395061}, /* expert_mid_b */
+    {1, 18, 12, 40, 7, 2, 0, 0.48360655737704916, 107.18626984126976,
+     26138.610751366119, 50.20391470115856}, /* expert_sparse_c */
+    {1, 0, 24, 3, 5, 6, 0, 1, 140.61388888888888, 34863.770833333328,
+     72.038757716049389}, /* tall_expert_d */
+    {1, 2, 0, 5, 3, 1, 0, 0.20000000000000001, 16.669444444444441,
+     713.47500000000002, 7.3141280864197551}, /* small_e */
 };
 const int kNExpected = (int)(sizeof kExpected / sizeof kExpected[0]);
 
@@ -172,14 +179,15 @@ TEST(Golden, MatchesBaseline) {
           "    {%d, %d, %d, %d, %d, %d, %.17g, %.17g, %.17g, %.17g, %.17g},  "
           "/* %s */\n",
           st.eval, st.best_x, st.best_y, st.interior_count, st.n_forced_safe,
-          st.n_forced_mine, st.best_prob, st.interior_prob, st.sum_p,
-          st.sum_ip, st.sum_p2, kCorpus[i].name);
+          st.n_forced_mine, st.best_prob, st.interior_prob, st.sum_p, st.sum_ip,
+          st.sum_p2, kCorpus[i].name);
     }
     printf("};\n");
     GTEST_SKIP() << "capture mode: paste the printed block into kExpected[]";
   }
 
-  ASSERT_EQ(kNExpected, kNCorpus) << "baseline not captured; run GOLDEN_CAPTURE=1";
+  ASSERT_EQ(kNExpected, kNCorpus)
+      << "baseline not captured; run GOLDEN_CAPTURE=1";
   for (int i = 0; i < kNCorpus; ++i) {
     Stats st;
     run(kCorpus[i], &st);

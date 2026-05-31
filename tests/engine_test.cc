@@ -320,3 +320,57 @@ TEST_F(Engine, WonAndLost) {
   solver_analyze(&b, &a, s);
   EXPECT_EQ(a.eval, EVAL_LOST);
 }
+
+/* Reentrancy: two boards on two independent SolverScratch handles. Interleaving
+ * an analysis of board B between analyses of board A must not perturb A — i.e.
+ * the engine's output depends only on (board, its own scratch), so parallel
+ * solver instances are safe. Would fail if any mutable engine state were
+ * shared between handles. */
+TEST_F(Engine, ReentrantInterleaved) {
+  TB ta; /* 2x2: mine at (1,1), reveal (0,0) */
+  memset(&ta, 0, sizeof ta);
+  ta.w = 2;
+  ta.h = 2;
+  ta.mine[ix(2, 1, 1)] = true;
+  ta.revealed[ix(2, 0, 0)] = true;
+
+  TB tb; /* 4x4, 3 mines, one revealed corner */
+  memset(&tb, 0, sizeof tb);
+  tb.w = 4;
+  tb.h = 4;
+  tb.mine[ix(4, 1, 0)] = true;
+  tb.mine[ix(4, 3, 3)] = true;
+  tb.mine[ix(4, 0, 3)] = true;
+  tb.revealed[ix(4, 0, 0)] = true;
+
+  Board ba;
+  Board bb;
+  build_board(ta, &ba);
+  build_board(tb, &bb);
+
+  SolverScratch* sa = solver_scratch_create();
+  SolverScratch* sb = solver_scratch_create();
+  ASSERT_NE(sa, nullptr);
+  ASSERT_NE(sb, nullptr);
+
+  Analysis refA;
+  Analysis refB;
+  solver_analyze(&ba, &refA, sa);
+  solver_analyze(&bb, &refB, sb);
+
+  for (int iter = 0; iter < 5; ++iter) {
+    Analysis a2;
+    Analysis b2;
+    solver_analyze(&bb, &b2, sb); /* B between A's re-analyses */
+    solver_analyze(&ba, &a2, sa);
+    for (int i = 0; i < ba.width * ba.height; ++i) {
+      EXPECT_EQ(a2.cells[i].mine_prob, refA.cells[i].mine_prob);
+    }
+    for (int i = 0; i < bb.width * bb.height; ++i) {
+      EXPECT_EQ(b2.cells[i].mine_prob, refB.cells[i].mine_prob);
+    }
+  }
+
+  solver_scratch_destroy(sa);
+  solver_scratch_destroy(sb);
+}
