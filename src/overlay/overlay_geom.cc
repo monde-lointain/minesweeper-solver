@@ -7,6 +7,8 @@
 #include <math.h>
 #include <stdio.h>
 
+#include "solver/util.h"
+
 struct OverlayRect overlay_cell_rect(int grid_x, int grid_y, int cell, int x,
                                      int y) {
   struct OverlayRect r;
@@ -20,10 +22,7 @@ struct OverlayRect overlay_cell_rect(int grid_x, int grid_y, int cell, int x,
 /* Linear interpolate two 0..255 channel endpoints, rounded and clamped. */
 static unsigned char lerp8(int a, int b, double t) {
   double v = (double)a + (((double)b - (double)a) * t);
-  long r = lround(v);
-  r = (r < 0) ? 0 : r;
-  r = (r > 255) ? 255 : r;
-  return (unsigned char)r;
+  return (unsigned char)solver_clampi((int)lround(v), 0, 255);
 }
 
 struct OverlayColor overlay_prob_color(double prob) {
@@ -47,10 +46,7 @@ struct OverlayColor overlay_prob_color(double prob) {
 
 static int safety_pct(double mine_prob) {
   double s = (1.0 - mine_prob) * 100.0;
-  long r = lround(s);
-  r = (r < 0) ? 0 : r;
-  r = (r > 100) ? 100 : r;
-  return (int)r;
+  return solver_clampi((int)lround(s), 0, 100);
 }
 
 void overlay_eval_string(const struct Analysis* a, char* buf, int n) {

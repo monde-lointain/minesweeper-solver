@@ -26,6 +26,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "solver/util.h"
+
 enum { VAR_UNKNOWN = -1, VAR_SAFE = 0, VAR_MINE = 1 };
 
 enum {
@@ -121,16 +123,6 @@ static long double binom_ld(int n, int k) {
     r = r * (long double)(n - i) / (long double)(i + 1);
   }
   return r;
-}
-
-static long double clamp01(long double v) {
-  if (v < 0.0L) {
-    return 0.0L;
-  }
-  if (v > 1.0L) {
-    return 1.0L;
-  }
-  return v;
 }
 
 static int uf_find(struct SolverScratch* s, int x) {
@@ -455,7 +447,7 @@ static void fallback_component(struct SolverScratch* s, int comp) {
       }
       if (has && unknown > 0) {
         int rem = s->con_need[ci] - fixed_mines;
-        sum += clamp01((long double)rem / (long double)unknown);
+        sum += solver_clamp01((long double)rem / (long double)unknown);
         ++cnt;
       }
     }
@@ -523,7 +515,6 @@ static void analyze_start(const struct Board* b, struct Analysis* out) {
   out->best_x = 0;
   out->best_y = 0;
   out->best_prob = (double)uniform;
-  out->best_is_interior = true;
   out->interior_prob = (double)uniform;
   out->interior_count = ncells;
   out->eval = EVAL_START;
@@ -638,7 +629,7 @@ static void compute_interior_prob(const struct Board* b, struct SolverScratch* s
     interior_prob = interior_num / (zsum * (long double)ctx->interior_n);
   } else if (ctx->interior_n > 0) {
     /* fallback: uniform remaining density */
-    interior_prob = clamp01((long double)r_eff / (long double)ctx->interior_n);
+    interior_prob = solver_clamp01((long double)r_eff / (long double)ctx->interior_n);
   }
   ctx->interior_prob = interior_prob;
 }
@@ -649,12 +640,7 @@ static void write_cell_probs(const struct Board* b, struct Analysis* out,
                              struct SolverScratch* s,
                              const struct AnalyzeCtx* ctx) {
   int ncells = ctx->ncells;
-  for (int i = 0; i < ncells; ++i) {
-    out->cells[i].mine_prob = 0.0;
-    out->cells[i].is_frontier = false;
-    out->cells[i].forced_safe = false;
-    out->cells[i].forced_mine = false;
-  }
+  /* out->cells was already zeroed by memset in solver_analyze. */
 
   /* deduced + interior */
   for (int i = 0; i < ncells; ++i) {
@@ -703,7 +689,7 @@ static void write_cell_probs(const struct Board* b, struct Analysis* out,
           num += s->comp_mhat[c][lv][k] * ac[k];
         }
         int cell = s->cell_of_var[s->comp_gv[c][lv]];
-        out->cells[cell].mine_prob = (double)clamp01(num / ctx->zsum);
+        out->cells[cell].mine_prob = (double)solver_clamp01(num / ctx->zsum);
       }
     }
   }
@@ -726,7 +712,6 @@ static void pick_best_move(const struct Board* b, struct Analysis* out,
   double best = 2.0;
   int best_x = -1;
   int best_y = -1;
-  bool best_interior = false;
   for (int y = 0; y < b->height; ++y) {
     for (int x = 0; x < b->width; ++x) {
       int i = game_index(b, x, y);
@@ -744,7 +729,6 @@ static void pick_best_move(const struct Board* b, struct Analysis* out,
         best = p;
         best_x = x;
         best_y = y;
-        best_interior = !out->cells[i].is_frontier;
       }
     }
   }
@@ -754,7 +738,6 @@ static void pick_best_move(const struct Board* b, struct Analysis* out,
   out->best_x = best_x;
   out->best_y = best_y;
   out->best_prob = best_x >= 0 ? best : 0.0;
-  out->best_is_interior = best_interior;
   if (best_x < 0) {
     out->eval = EVAL_SOLVED;
   } else if ((long double)best < EPS) {

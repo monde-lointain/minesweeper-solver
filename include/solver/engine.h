@@ -33,9 +33,8 @@ struct Analysis {
   struct CellAnalysis cells[BOARD_MAX_CELLS];
   int best_x; /* lowest-risk move over all covered cells; -1 if none */
   int best_y;
-  double best_prob;      /* P(mine) of best move (0 when forced safe) */
-  bool best_is_interior; /* true if best move is an interior (un-tinted) cell */
-  double interior_prob;  /* uniform P(mine) for interior cells (eval line) */
+  double best_prob;     /* P(mine) of best move (0 when forced safe) */
+  double interior_prob; /* uniform P(mine) for interior cells (eval line) */
   int interior_count;    /* number of interior cells (0 => none) */
   int eval;              /* enum SolverEval */
 };

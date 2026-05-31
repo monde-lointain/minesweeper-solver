@@ -16,6 +16,7 @@
 #include <stdio.h>
 
 #include "solver/overlay_geom.h"
+#include "solver/util.h"
 
 void overlay_draw(const struct Analysis* a, const struct Board* b,
                   const struct Layout* lay) {
@@ -50,9 +51,8 @@ void overlay_draw(const struct Analysis* a, const struct Board* b,
 
       if (lay->scale >= 2) {
         char buf[8];
-        long pct = lround(ca->mine_prob * 100.0);
-        pct = (pct < 0) ? 0 : ((pct > 100) ? 100 : pct);
-        snprintf(buf, sizeof buf, "%ld", pct);
+        int pct = solver_clampi((int)lround(ca->mine_prob * 100.0), 0, 100);
+        snprintf(buf, sizeof buf, "%d", pct);
         ImVec2 ts = ImGui::CalcTextSize(buf);
         float tx = (float)r.x + (((float)r.w - ts.x) * 0.5f);
         float ty = (float)r.y + (((float)r.h - ts.y) * 0.5f);
