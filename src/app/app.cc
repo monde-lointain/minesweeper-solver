@@ -528,8 +528,12 @@ SDL_AppResult app_iterate(struct AppState* s) {
   /* Draw: board+chrome, then the analysis overlay (4), then ImGui on top. */
   SDL_SetRenderDrawColor(s->renderer, 192, 192, 192, 255);
   SDL_RenderClear(s->renderer);
-  render_frame(s->renderer, &s->assets, &s->board, &s->settings, &lay,
-               s->button_face, s->press_x, s->press_y, s->elapsed_sec);
+  struct FrameView view;
+  view.button_face = s->button_face;
+  view.press_x = s->press_x;
+  view.press_y = s->press_y;
+  view.elapsed_sec = s->elapsed_sec;
+  render_frame(s->renderer, &s->assets, &s->board, &lay, &view);
   if (s->overlay_on) {
     overlay_draw(&s->analysis, &s->board, &lay);
   }
