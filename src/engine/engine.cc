@@ -149,6 +149,24 @@ static bool cell_covered(const struct Board* b, int x, int y) {
   return !b->cells[game_index(b, x, y)].revealed;
 }
 
+/* Tally a constraint's currently-fixed mines and still-unknown vars over its
+ * covered-neighbor var list. */
+static void constraint_tally(const struct SolverScratch* s, int ci,
+                             int* fixed_mines, int* unknown) {
+  int fm = 0;
+  int unk = 0;
+  for (int j = 0; j < s->con_nv[ci]; ++j) {
+    int st = s->vstate[s->con_var[ci][j]];
+    if (st == VAR_MINE) {
+      ++fm;
+    } else if (st == VAR_UNKNOWN) {
+      ++unk;
+    }
+  }
+  *fixed_mines = fm;
+  *unknown = unk;
+}
+
 /* ---- step 1: build constraints + variables --------------------------------
  */
 static void build_constraints(const struct Board* b, struct SolverScratch* s) {
@@ -210,14 +228,7 @@ static void deduce(struct SolverScratch* s) {
     for (int ci = 0; ci < s->ncon; ++ci) {
       int fixed_mines = 0;
       int unknown = 0;
-      for (int j = 0; j < s->con_nv[ci]; ++j) {
-        int st = s->vstate[s->con_var[ci][j]];
-        if (st == VAR_MINE) {
-          ++fixed_mines;
-        } else if (st == VAR_UNKNOWN) {
-          ++unknown;
-        }
-      }
+      constraint_tally(s, ci, &fixed_mines, &unknown);
       if (unknown == 0) {
         continue;
       }
@@ -435,18 +446,14 @@ static void fallback_component(struct SolverScratch* s, int comp) {
     long double sum = 0.0L;
     int cnt = 0;
     for (int ci = 0; ci < s->ncon; ++ci) {
-      bool has = false;
       int unknown = 0;
       int fixed_mines = 0;
+      constraint_tally(s, ci, &fixed_mines, &unknown);
+      bool has = false;
       for (int j = 0; j < s->con_nv[ci]; ++j) {
-        int vv = s->con_var[ci][j];
-        if (s->cell_of_var[vv] == cell) {
+        if (s->cell_of_var[s->con_var[ci][j]] == cell) {
           has = true;
-        }
-        if (s->vstate[vv] == VAR_UNKNOWN) {
-          ++unknown;
-        } else if (s->vstate[vv] == VAR_MINE) {
-          ++fixed_mines;
+          break;
         }
       }
       if (has && unknown > 0) {
