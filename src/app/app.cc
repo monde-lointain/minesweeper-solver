@@ -27,23 +27,16 @@
 #include "solver/engine.h"
 #include "solver/overlay.h"
 
-/* ---- transient input state (single window) ----------------------------- */
-static bool g_left_down;
-static bool g_right_down;
-static bool g_chorded; /* a chord fired; suppress the partner button's action */
-static bool g_want_quit;
-static int g_menu_bar_h; /* last ImGui main-menu-bar height in px */
-static uint64_t g_pause_started_ms;
-
-/* (1) injected RNG so boards vary across launches. */
-static uint32_t g_rng_state;
+/* (1) injected RNG so boards vary across launches. State is threaded through
+ * the Rng.ctx slot (a pointer to AppState::rng_state), so no global is needed.
+ */
 static uint32_t solver_rng(void* ctx, uint32_t n) {
-  (void)ctx;
-  uint32_t x = g_rng_state;
+  uint32_t* state = (uint32_t*)ctx;
+  uint32_t x = *state;
   x ^= x << 13;
   x ^= x >> 17;
   x ^= x << 5;
-  g_rng_state = x;
+  *state = x;
   return (n != 0u) ? (x % n) : 0u;
 }
 
@@ -80,7 +73,7 @@ static void app_dims(const struct Settings* s, int* w, int* h, int* mines) {
 }
 
 static void app_compute_layout(struct AppState* s, struct Layout* lay) {
-  int mbh = s->settings.menu_visible ? g_menu_bar_h : 0;
+  int mbh = s->settings.menu_visible ? s->menu_bar_h : 0;
   render_compute_layout(&s->board, &s->settings, mbh, lay);
 }
 
@@ -101,7 +94,7 @@ static void app_new_game(struct AppState* s) {
   int h = 0;
   int mines = 0;
   app_dims(&s->settings, &w, &h, &mines);
-  struct Rng rng = {solver_rng, NULL, 0}; /* (1) */
+  struct Rng rng = {solver_rng, &s->rng_state, 0}; /* (1) */
   game_reset(&s->board, w, h, mines, &rng);
   s->button_face = BTN_HAPPY;
   s->press_x = -1;
@@ -112,9 +105,9 @@ static void app_new_game(struct AppState* s) {
   s->timer_running = false;
   s->elapsed_sec = 0;
   s->paused = false;
-  g_left_down = false;
-  g_right_down = false;
-  g_chorded = false;
+  s->left_down = false;
+  s->right_down = false;
+  s->chorded = false;
   app_resize(s);
 }
 
@@ -182,9 +175,9 @@ SDL_AppResult app_init(struct AppState** out, int argc, char** argv) {
   }
 
   /* (1) seed the RNG from a high-resolution counter. */
-  g_rng_state = (uint32_t)SDL_GetPerformanceCounter();
-  if (g_rng_state == 0u) {
-    g_rng_state = 0x1u;
+  s->rng_state = (uint32_t)SDL_GetPerformanceCounter();
+  if (s->rng_state == 0u) {
+    s->rng_state = 0x1u;
   }
 
   if (!SDL_CreateWindowAndRenderer("Minesweeper Solver", 320, 240, 0,
@@ -277,14 +270,14 @@ static void app_mouse_down(struct AppState* s, const SDL_Event* e) {
   on_cell = render_cell_at(&s->board, &lay, e->button.x, e->button.y, &cx, &cy);
 
   if (e->button.button == SDL_BUTTON_LEFT) {
-    g_left_down = true;
+    s->left_down = true;
     if (render_button_at(&lay, e->button.x, e->button.y)) {
       s->pressing_face = true;
       s->button_face = BTN_DOWN;
       return;
     }
   } else if (e->button.button == SDL_BUTTON_RIGHT) {
-    g_right_down = true;
+    s->right_down = true;
   }
 
   if (!app_playable(s)) {
@@ -292,7 +285,8 @@ static void app_mouse_down(struct AppState* s, const SDL_Event* e) {
   }
 
   /* Both buttons (or middle) -> chord intent. */
-  if ((g_left_down && g_right_down) || e->button.button == SDL_BUTTON_MIDDLE) {
+  if ((s->left_down && s->right_down) ||
+      e->button.button == SDL_BUTTON_MIDDLE) {
     s->chord_active = true;
     if (on_cell) {
       s->press_x = cx;
@@ -329,7 +323,7 @@ static void app_mouse_up(struct AppState* s, const SDL_Event* e) {
     } else {
       s->button_face = BTN_HAPPY;
     }
-    g_left_down = false;
+    s->left_down = false;
     return;
   }
 
@@ -340,11 +334,11 @@ static void app_mouse_up(struct AppState* s, const SDL_Event* e) {
       app_after_action(s, result);
     }
     s->chord_active = false;
-    g_chorded = true;
+    s->chorded = true;
     s->press_x = -1;
     s->press_y = -1;
   } else if (e->button.button == SDL_BUTTON_LEFT && s->pressing_board) {
-    if (on_cell && app_playable(s) && !g_chorded) {
+    if (on_cell && app_playable(s) && !s->chorded) {
       result = game_reveal(&s->board, cx, cy);
       app_start_timer(s);
       app_after_action(s, result);
@@ -355,12 +349,12 @@ static void app_mouse_up(struct AppState* s, const SDL_Event* e) {
   }
 
   if (e->button.button == SDL_BUTTON_LEFT) {
-    g_left_down = false;
+    s->left_down = false;
   } else if (e->button.button == SDL_BUTTON_RIGHT) {
-    g_right_down = false;
+    s->right_down = false;
   }
-  if (!g_left_down && !g_right_down) {
-    g_chorded = false;
+  if (!s->left_down && !s->right_down) {
+    s->chorded = false;
   }
   if (s->button_face == BTN_CAUTION && app_playable(s)) {
     s->button_face = BTN_HAPPY;
@@ -372,9 +366,9 @@ static void app_set_paused(struct AppState* s, bool paused) {
     return;
   }
   if (paused) {
-    g_pause_started_ms = SDL_GetTicks();
+    s->pause_started_ms = SDL_GetTicks();
   } else if (s->timer_running) {
-    s->timer_start_ms += SDL_GetTicks() - g_pause_started_ms;
+    s->timer_start_ms += SDL_GetTicks() - s->pause_started_ms;
   }
   s->paused = paused;
 }
@@ -433,7 +427,7 @@ SDL_AppResult app_event(struct AppState* s, SDL_Event* event) {
 /* ---- per-frame actions ------------------------------------------------- */
 static void app_apply_actions(struct AppState* s, const struct UiActions* a) {
   if (a->quit) {
-    g_want_quit = true;
+    s->want_quit = true;
   }
   if (a->new_game) {
     app_new_game(s);
@@ -512,7 +506,7 @@ SDL_AppResult app_iterate(struct AppState* s) {
 
   ui_actions_clear(&actions);
   menu_h = ui_menu_bar(&s->settings, &actions);
-  g_menu_bar_h = (int)menu_h;
+  s->menu_bar_h = (int)menu_h;
   ui_dialogs(&s->settings, &actions, &s->dialogs);
   app_apply_actions(s, &actions);
 
@@ -562,7 +556,7 @@ SDL_AppResult app_iterate(struct AppState* s) {
   ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), s->renderer);
   SDL_RenderPresent(s->renderer);
 
-  return g_want_quit ? SDL_APP_SUCCESS : SDL_APP_CONTINUE;
+  return s->want_quit ? SDL_APP_SUCCESS : SDL_APP_CONTINUE;
 }
 
 void app_quit(struct AppState* s) {

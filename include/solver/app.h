@@ -44,6 +44,15 @@ struct AppState {
   bool pressing_face;  /* left button held on smiley */
   bool chord_active;   /* both buttons / middle held */
 
+  /* transient input + app state (formerly file-scope globals) */
+  bool left_down;
+  bool right_down;
+  bool chorded; /* a chord fired; suppress the partner button's action */
+  bool want_quit;
+  int menu_bar_h;            /* last ImGui main-menu-bar height in px */
+  uint64_t pause_started_ms; /* SDL_GetTicks() when pause began */
+  uint32_t rng_state;        /* xorshift state for solver_rng (via Rng.ctx) */
+
   bool timer_running;
   uint64_t timer_start_ms;
   int elapsed_sec;
