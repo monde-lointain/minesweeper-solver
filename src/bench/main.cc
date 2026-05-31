@@ -1,30 +1,46 @@
-/* main.cc — STUB (Stream A). Finalized by Stream B.4.
- * Honors --help; otherwise runs a tiny fixed smoke so a bare invocation is fast
- * (the real main, B.4, honors --games / the 1M default).
+/* main.cc — benchmark CLI entry (Stream B.4).
+ * Parse -> run -> print. Exit nonzero if a forced-safe death occurred (an engine
+ * correctness defect the harness is designed to catch).
  */
 #include <stdio.h>
-#include <string.h>
 #include <time.h>
 
 #include "args.h"
 #include "metrics.h"
 #include "runner.h"
 
-int main(int argc, char** argv) {
-  for (int i = 1; i < argc; ++i) {
-    if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
-      bench_usage(argv[0]);
-      return 0;
-    }
-  }
+static double wall_now(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
 
+int main(int argc, char** argv) {
   struct BenchConfig cfg;
   const char* err = NULL;
-  bench_parse_args(argc, argv, &cfg, &err);
-  cfg.games = 5; /* stub: keep a bare run fast */
+  int rc = bench_parse_args(argc, argv, &cfg, &err);
+  if (rc == 1) {
+    bench_usage(argv[0]);
+    return 0;
+  }
+  if (rc < 0) {
+    fprintf(stderr, "error: %s\n", (err != NULL) ? err : "bad arguments");
+    bench_usage(argv[0]);
+    return 2;
+  }
+
+  if (!cfg.quiet) {
+    printf("running %s: %llux  seed=%u  threads=%s  policy=baseline ...\n",
+           cfg.label, (unsigned long long)cfg.games, cfg.seed,
+           (cfg.threads <= 0) ? "auto" : "fixed");
+    fflush(stdout);
+  }
 
   struct Metrics m;
+  double t0 = wall_now();
   int nthreads = bench_run(&cfg, &m);
-  metrics_print(&m, cfg.label, 0.0, nthreads);
-  return 0;
+  double wall = wall_now() - t0;
+
+  metrics_print(&m, cfg.label, wall, nthreads);
+  return (m.deaths_on_forced_safe == 0) ? 0 : 1;
 }
