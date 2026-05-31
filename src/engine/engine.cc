@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "rational.h"
 #include "solver/util.h"
 
 enum { VAR_UNKNOWN = -1, VAR_SAFE = 0, VAR_MINE = 1 };
@@ -37,6 +38,8 @@ enum {
   MAXCOMP = 128,      /* exact-DP component cap */
   MAXFLEN = 256,      /* exact-DP total-frontier-mine cap + 1 */
   MAXVARCON = 8,      /* a covered cell borders <= 8 numbered cells */
+  MAX_RED_ROWS = 128, /* constraint rows in the reduction matrix */
+  FREE_CAP = 28,      /* max free vars after RREF (search feasibility) */
   /* compact ragged result storage: total exact var-slots bounded by Sigma nv_c
    * <= MAXCELL; total mhat slots by Sigma nv_c*(nv_c+1) <= MAXCELL*(MCV+1). */
   MHAT_FLAT_MAX = MAXCELL * (MAX_COMP_VARS + 1),
@@ -45,6 +48,16 @@ enum {
 
 static const long double EPS = 1e-9L;
 static const int NODE_BUDGET = 5000000;
+/* Separate, smaller budget for the reduced free-var DFS: structured frontiers
+ * finish far under it; high-entropy ones bail fast to fallback (each reduced
+ * node costs O(rank) rational ops, so a huge budget would be too slow). */
+static const int REDUCED_NODE_BUDGET = 30000;
+
+/* Test-only: force the Gaussian-reduction path even for nv <= CAP_VARS, so the
+ * differential test can compare reduced vs direct enumeration on small systems
+ * where both are valid. Never set in production. */
+static bool g_force_reduce = false;
+void solver_test_set_force_reduce(bool on) { g_force_reduce = on; }
 
 /* ---- working memory --------------------------------------------------------
  * One per analysis (or per thread). calloc-zeroed on create, which reproduces
@@ -135,6 +148,24 @@ struct EnumScratch {
   bool overflow;
 };
 
+/* Gaussian-reduction scratch (one component at a time): rational augmented
+ * matrix + free/leading split + the free-var enumeration state (per-row partial
+ * value `acc` and pos/neg suffix sums of free-var coefficients for interval
+ * pruning). */
+/* NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding) */
+struct ReduceScratch {
+  struct Rat mat[MAX_RED_ROWS][MAX_COMP_VARS + 1]; /* rows x (vars | rhs) */
+  int pivcol[MAX_COMP_VARS]; /* leading var (col) of pivot row r */
+  bool is_pivot_var[MAX_COMP_VARS];
+  int rank;
+  int freevar[MAX_COMP_VARS];
+  int nfree;
+  struct Rat acc[MAX_COMP_VARS]; /* per pivot row: rhs - sum assigned coef*x */
+  struct Rat posSuf[MAX_COMP_VARS][MAX_COMP_VARS + 1]; /* suffix max(coef,0) */
+  struct Rat negSuf[MAX_COMP_VARS][MAX_COMP_VARS + 1]; /* suffix min(coef,0) */
+  int xfull[MAX_COMP_VARS]; /* current full {0,1} assignment */
+};
+
 /* NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding) */
 struct SolverScratch {
   struct ConstraintModel cm;
@@ -142,6 +173,7 @@ struct SolverScratch {
   struct CompResults res;
   struct CombineDP dp;
   struct EnumScratch ec;
+  struct ReduceScratch rd;
 };
 
 /* Compact-ragged accessors: per-component views into the flat result arrays. */
@@ -426,6 +458,237 @@ static void enum_dfs(struct SolverScratch* s, int i, int total) {
   }
 }
 
+/* ---- Gaussian-elimination reduction (for CAP_VARS < nv <= MAX_COMP_VARS) ----
+ *
+ * The direct DFS branches all nv vars; on dense Expert frontiers the search
+ * tree blows the node budget. Reduction row-reduces the component's {0,1}
+ * constraint system to RREF, then enumerates only the FREE variables (nv-rank),
+ * back-substituting leading vars and pruning when they leave {0,1}. The output
+ * (ec.sol / ec.mine) is identical in form to the direct path, so the combine DP
+ * is untouched. All arithmetic is exact rational; any overflow / infeasible
+ * row / too-many-free / node-budget condition aborts to the naive fallback so a
+ * wrong marginal is never emitted.
+ */
+
+/* Build the rational augmented matrix from the gathered local constraints and
+ * reduce to RREF. Fills rd.{pivcol,is_pivot_var,rank,freevar,nfree}. Returns
+ * false on overflow, an infeasible (0 = nonzero) row, too many rows/free vars,
+ * or a degenerate system. */
+static bool reduce_rref(struct SolverScratch* s) {
+  int nv = s->ec.nv;
+  int nr = s->ec.ncon;
+  if (nr > MAX_RED_ROWS) {
+    return false;
+  }
+  for (int r = 0; r < nr; ++r) {
+    for (int j = 0; j <= nv; ++j) {
+      s->rd.mat[r][j] = rat_from_i64(0);
+    }
+    for (int t = 0; t < s->ec.con_nlv[r]; ++t) {
+      s->rd.mat[r][s->ec.con_lv[r][t]] = rat_from_i64(1);
+    }
+    s->rd.mat[r][nv] = rat_from_i64(s->ec.con_need[r]);
+  }
+  for (int j = 0; j < nv; ++j) {
+    s->rd.is_pivot_var[j] = false;
+  }
+  int rank = 0;
+  for (int col = 0; col < nv && rank < nr; ++col) {
+    int piv = -1;
+    for (int r = rank; r < nr; ++r) {
+      if (!rat_is_zero(s->rd.mat[r][col])) {
+        piv = r;
+        break;
+      }
+    }
+    if (piv < 0) {
+      continue; /* free column */
+    }
+    if (piv != rank) {
+      for (int j = 0; j <= nv; ++j) {
+        struct Rat tmp = s->rd.mat[rank][j];
+        s->rd.mat[rank][j] = s->rd.mat[piv][j];
+        s->rd.mat[piv][j] = tmp;
+      }
+    }
+    struct Rat pivval = s->rd.mat[rank][col];
+    for (int j = 0; j <= nv; ++j) {
+      s->rd.mat[rank][j] = rat_div(s->rd.mat[rank][j], pivval);
+      if (!rat_ok(s->rd.mat[rank][j])) {
+        return false;
+      }
+    }
+    for (int r = 0; r < nr; ++r) {
+      if (r == rank) {
+        continue;
+      }
+      struct Rat f = s->rd.mat[r][col];
+      if (rat_is_zero(f)) {
+        continue;
+      }
+      for (int j = 0; j <= nv; ++j) {
+        struct Rat prod = rat_mul(f, s->rd.mat[rank][j]);
+        s->rd.mat[r][j] = rat_sub(s->rd.mat[r][j], prod);
+        if (!rat_ok(s->rd.mat[r][j])) {
+          return false;
+        }
+      }
+    }
+    s->rd.pivcol[rank] = col;
+    s->rd.is_pivot_var[col] = true;
+    ++rank;
+  }
+  s->rd.rank = rank;
+  /* consistency: any all-zero-coefficient row must have zero rhs */
+  for (int r = rank; r < nr; ++r) {
+    bool allzero = true;
+    for (int j = 0; j < nv; ++j) {
+      if (!rat_is_zero(s->rd.mat[r][j])) {
+        allzero = false;
+        break;
+      }
+    }
+    if (allzero && !rat_is_zero(s->rd.mat[r][nv])) {
+      return false; /* 0 = nonzero: infeasible */
+    }
+  }
+  s->rd.nfree = 0;
+  for (int j = 0; j < nv; ++j) {
+    if (!s->rd.is_pivot_var[j]) {
+      s->rd.freevar[s->rd.nfree++] = j;
+    }
+  }
+  if (s->rd.nfree > FREE_CAP) {
+    return false;
+  }
+  return true;
+}
+
+/* Precompute, per pivot row, the suffix sums (over free-var order) of the
+ * positive and negative parts of that row's free-var coefficients, used for
+ * interval pruning. Initialize acc[r] = rhs of pivot row r. Returns false on
+ * overflow. */
+static bool reduce_prep_enum(struct SolverScratch* s) {
+  int nv = s->ec.nv;
+  for (int r = 0; r < s->rd.rank; ++r) {
+    s->rd.acc[r] = s->rd.mat[r][nv];
+    s->rd.posSuf[r][s->rd.nfree] = rat_from_i64(0);
+    s->rd.negSuf[r][s->rd.nfree] = rat_from_i64(0);
+    for (int d = s->rd.nfree - 1; d >= 0; --d) {
+      struct Rat coef = s->rd.mat[r][s->rd.freevar[d]];
+      struct Rat pos = rat_cmp_i64(coef, 0) > 0 ? coef : rat_from_i64(0);
+      struct Rat neg = rat_cmp_i64(coef, 0) < 0 ? coef : rat_from_i64(0);
+      s->rd.posSuf[r][d] = rat_add(s->rd.posSuf[r][d + 1], pos);
+      s->rd.negSuf[r][d] = rat_add(s->rd.negSuf[r][d + 1], neg);
+      if (!rat_ok(s->rd.posSuf[r][d]) || !rat_ok(s->rd.negSuf[r][d])) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+/* Accumulate the current full {0,1} assignment into ec.sol / ec.mine. */
+static void reduced_accumulate(struct SolverScratch* s) {
+  int total = 0;
+  for (int lv = 0; lv < s->ec.nv; ++lv) {
+    total += s->rd.xfull[lv];
+  }
+  s->ec.sol[total] += 1.0L;
+  for (int lv = 0; lv < s->ec.nv; ++lv) {
+    if (s->rd.xfull[lv] == 1) {
+      s->ec.mine[lv][total] += 1.0L;
+    }
+  }
+}
+
+/* DFS over free variable position d in {0,1}, maintaining acc[r] (pivot-row
+ * partial value) and pruning rows whose leading var can no longer land in
+ * {0,1}. At the leaf, each pivot row's leading var = acc[r] must be exactly 0
+ * or 1. Any rational overflow sets ec.overflow (-> fallback). */
+static void reduced_dfs(struct SolverScratch* s, int d) {
+  if (s->ec.overflow) {
+    return;
+  }
+  if (++s->ec.nodes > REDUCED_NODE_BUDGET) {
+    s->ec.overflow = true;
+    return;
+  }
+  if (d == s->rd.nfree) {
+    for (int r = 0; r < s->rd.rank; ++r) {
+      if (rat_eq_i64(s->rd.acc[r], 0)) {
+        s->rd.xfull[s->rd.pivcol[r]] = 0;
+      } else if (rat_eq_i64(s->rd.acc[r], 1)) {
+        s->rd.xfull[s->rd.pivcol[r]] = 1;
+      } else {
+        return; /* leading var not in {0,1}: not a solution */
+      }
+    }
+    reduced_accumulate(s);
+    return;
+  }
+  int fv = s->rd.freevar[d];
+  for (int val = 0; val <= 1; ++val) {
+    s->rd.xfull[fv] = val;
+    if (val == 1) {
+      for (int r = 0; r < s->rd.rank; ++r) {
+        struct Rat coef = s->rd.mat[r][fv];
+        if (rat_is_zero(coef)) {
+          continue;
+        }
+        s->rd.acc[r] = rat_sub(s->rd.acc[r], coef);
+        if (!rat_ok(s->rd.acc[r])) {
+          s->ec.overflow = true;
+          return;
+        }
+      }
+    }
+    bool ok = true;
+    for (int r = 0; r < s->rd.rank && ok; ++r) {
+      struct Rat lo = rat_sub(s->rd.acc[r], s->rd.posSuf[r][d + 1]);
+      struct Rat hi = rat_sub(s->rd.acc[r], s->rd.negSuf[r][d + 1]);
+      if (!rat_ok(lo) || !rat_ok(hi)) {
+        s->ec.overflow = true;
+        return;
+      }
+      bool c0 = rat_cmp_i64(lo, 0) <= 0 && rat_cmp_i64(hi, 0) >= 0;
+      bool c1 = rat_cmp_i64(lo, 1) <= 0 && rat_cmp_i64(hi, 1) >= 0;
+      if (!c0 && !c1) {
+        ok = false;
+      }
+    }
+    if (ok) {
+      reduced_dfs(s, d + 1);
+      if (s->ec.overflow) {
+        return;
+      }
+    }
+    if (val == 1) {
+      for (int r = 0; r < s->rd.rank; ++r) {
+        struct Rat coef = s->rd.mat[r][fv];
+        if (!rat_is_zero(coef)) {
+          s->rd.acc[r] = rat_add(s->rd.acc[r], coef);
+        }
+      }
+    }
+  }
+}
+
+/* Reduce + enumerate the current component (ec already holds the local
+ * constraint model). Fills ec.sol / ec.mine. Returns false on fallback. */
+static bool enumerate_reduced(struct SolverScratch* s) {
+  if (!reduce_rref(s)) {
+    return false;
+  }
+  if (!reduce_prep_enum(s)) {
+    return false;
+  }
+  s->ec.nodes = 0;
+  s->ec.overflow = false;
+  reduced_dfs(s, 0);
+  return !s->ec.overflow;
+}
+
 /* Build the local model for component `comp` (vars + local indices precomputed
  * by layout_components) and enumerate it directly. Returns false on fallback
  * (over the direct cap / node budget / infeasible), true on exact success (and
@@ -435,8 +698,8 @@ static void enum_dfs(struct SolverScratch* s, int i, int total) {
 static bool enumerate_component(struct SolverScratch* s, int comp,
                                 int* shat_used, int* mhat_used) {
   int nv = s->res.nv[comp];
-  if (nv > CAP_VARS) {
-    return false; /* too many vars: fallback */
+  if (nv > MAX_COMP_VARS) {
+    return false; /* too big to store exactly: fallback */
   }
   s->ec.nv = nv;
   /* gather local constraints */
@@ -486,11 +749,17 @@ static bool enumerate_component(struct SolverScratch* s, int comp,
     s->ec.con_sum[cj] = 0;
     s->ec.con_un[cj] = s->ec.con_nlv[cj];
   }
-  s->ec.nodes = 0;
-  s->ec.overflow = false;
-  enum_dfs(s, 0, 0);
-  if (s->ec.overflow) {
-    return false;
+  if (nv > CAP_VARS || g_force_reduce) {
+    if (!enumerate_reduced(s)) { /* Gaussian reduction + free-var DFS */
+      return false;
+    }
+  } else {
+    s->ec.nodes = 0;
+    s->ec.overflow = false;
+    enum_dfs(s, 0, 0); /* direct: branch all vars (unchanged path) */
+    if (s->ec.overflow) {
+      return false;
+    }
   }
   /* normalize into compact comp tables */
   long double total = 0.0L;
@@ -857,39 +1126,48 @@ static void write_cell_probs(const struct Board* b, struct Analysis* out,
     }
   }
 
-  /* Approximate paths must never masquerade as proofs. When any component fell
-   * back (or the exact DP overflowed), the global mine budget is a rounded
-   * point estimate (see compute_interior_prob's r_eff), so a derived P(mine) of
-   * exactly 0 or 1 is NOT proven — it is an artifact of collapsing a
-   * distribution. Clamp every non-deduced covered cell away from {0,1} so
-   * pick_best_move cannot mark it forced_safe/forced_mine and the policy cannot
-   * "safely" walk into a mine. Single-point-deduced cells (VAR_SAFE/VAR_MINE)
-   * are real proofs and keep their exact 0/1. */
-  bool approx = !ctx->exact_ok;
-  for (int c = 0; c < ctx->ncomp && !approx; ++c) {
-    if (s->res.fallback[c]) {
-      approx = true;
+  /* Approximate paths must never masquerade as proofs: a P(mine) of exactly 0/1
+   * from an APPROXIMATE source (naive fallback, or the crude no-DP path) is not
+   * a real proof, so clamp it away from {0,1} — else pick_best_move marks it
+   * forced and the policy walks into a mispriced mine.
+   *
+   * This is PER-COMPONENT (a cell safe in all local solutions is safe in all
+   * global solutions, so an EXACT component's 0/1 IS a proof and must be kept;
+   * the Gaussian reduction makes mixed exact+fallback boards common, where a
+   * board-global clamp would discard the reduction's hard-won forced cells).
+   * Clamp only: (a) cells in a fallback component, or (b) everything when the
+   * exact DP did not run (!exact_ok). Single-point-deduced cells and exact /
+   * interior cells keep their exact 0/1. */
+  const double kApproxLo = 1e-6; /* >> EPS (1e-9): never reads as forced */
+  for (int i = 0; i < ncells; ++i) {
+    if (b->cells[i].revealed) {
+      continue;
     }
-  }
-  if (approx) {
-    const double kApproxLo = 1e-6; /* >> EPS (1e-9): never reads as forced */
-    for (int i = 0; i < ncells; ++i) {
-      if (b->cells[i].revealed) {
-        continue;
-      }
-      int v = s->cm.var_of_cell[i];
-      if (v >= 0 &&
-          (s->cm.vstate[v] == VAR_SAFE || s->cm.vstate[v] == VAR_MINE)) {
-        continue; /* genuine single-point proof */
-      }
-      double p = out->cells[i].mine_prob;
-      if (p < kApproxLo) {
-        p = kApproxLo;
-      } else if (p > 1.0 - kApproxLo) {
-        p = 1.0 - kApproxLo;
-      }
-      out->cells[i].mine_prob = p;
+    int v = s->cm.var_of_cell[i];
+    if (v >= 0 &&
+        (s->cm.vstate[v] == VAR_SAFE || s->cm.vstate[v] == VAR_MINE)) {
+      continue; /* genuine single-point proof */
     }
+    bool approx;
+    if (!ctx->exact_ok) {
+      approx = true; /* no DP ran: whole board approximate */
+    } else if (v >= 0) {
+      int comp =
+          s->comp.of_var[v]; /* frontier cell: approximate iff fallback */
+      approx = comp >= 0 && s->res.fallback[comp];
+    } else {
+      approx = false; /* interior under the exact DP: trustworthy */
+    }
+    if (!approx) {
+      continue;
+    }
+    double p = out->cells[i].mine_prob;
+    if (p < kApproxLo) {
+      p = kApproxLo;
+    } else if (p > 1.0 - kApproxLo) {
+      p = 1.0 - kApproxLo;
+    }
+    out->cells[i].mine_prob = p;
   }
 }
 
