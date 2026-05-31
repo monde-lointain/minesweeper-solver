@@ -19,8 +19,8 @@
 #include "solver/engine.h"
 
 struct AppState {
-  SDL_Window *window;
-  SDL_Renderer *renderer;
+  SDL_Window* window;
+  SDL_Renderer* renderer;
   struct Assets assets;
   struct Audio audio;
   struct Board board;
@@ -51,15 +51,15 @@ struct AppState {
 
 /* Allocate + initialize: SDL, window/renderer, ImGui, config, assets, first
  * game + analysis. Returns SDL_APP_CONTINUE on success. */
-SDL_AppResult app_init(struct AppState **out, int argc, char **argv);
+SDL_AppResult app_init(struct AppState** out, int argc, char** argv);
 
 /* One event. */
-SDL_AppResult app_event(struct AppState *s, SDL_Event *event);
+SDL_AppResult app_event(struct AppState* s, SDL_Event* event);
 
 /* One frame (continuous vsync redraw). */
-SDL_AppResult app_iterate(struct AppState *s);
+SDL_AppResult app_iterate(struct AppState* s);
 
 /* Teardown + save settings. */
-void app_quit(struct AppState *s);
+void app_quit(struct AppState* s);
 
 #endif /* SOLVER_APP_H */
