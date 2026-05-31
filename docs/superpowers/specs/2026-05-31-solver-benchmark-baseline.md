@@ -57,6 +57,16 @@ cells that were actually mines. Properties:
 This is captured as a disabled repro test
 (`BenchIntegration.DISABLED_ExpertNeverKillsOnForcedSafe`); enable once fixed.
 
+**UPDATE (Fix A applied):** root-caused to `compute_interior_prob` collapsing each
+fallback component's mine-count distribution into a *rounded point estimate*
+(`r_eff = rem_mines - llroundl(fallback_expected)`), which starves the global mine
+budget and lets the exact DP / uniform-interior formula emit `mine_prob` exactly
+0/1 for undetermined cells. Fix A (`write_cell_probs`): in any analysis that used
+approximation, clamp non-deduced cells away from {0,1} so approximations can never
+read as proofs. Result: `deaths@forced-safe` → 0; Expert winrate unchanged within
+CI (0.282). The regression test is now enabled. The deeper accuracy fix
+(distributional fallback, "Fix B") remains the winrate lever.
+
 ## Performance
 
 Expert: 1086 games/s on 16 threads; analyze 110 µs mean, 30 ms max. The 1M-game

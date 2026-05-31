@@ -734,6 +734,41 @@ static void write_cell_probs(const struct Board* b, struct Analysis* out,
       }
     }
   }
+
+  /* Approximate paths must never masquerade as proofs. When any component fell
+   * back (or the exact DP overflowed), the global mine budget is a rounded
+   * point estimate (see compute_interior_prob's r_eff), so a derived P(mine) of
+   * exactly 0 or 1 is NOT proven — it is an artifact of collapsing a
+   * distribution. Clamp every non-deduced covered cell away from {0,1} so
+   * pick_best_move cannot mark it forced_safe/forced_mine and the policy cannot
+   * "safely" walk into a mine. Single-point-deduced cells (VAR_SAFE/VAR_MINE)
+   * are real proofs and keep their exact 0/1. */
+  bool approx = !ctx->exact_ok;
+  for (int c = 0; c < ctx->ncomp && !approx; ++c) {
+    if (s->res.fallback[c]) {
+      approx = true;
+    }
+  }
+  if (approx) {
+    const double kApproxLo = 1e-6; /* >> EPS (1e-9): never reads as forced */
+    for (int i = 0; i < ncells; ++i) {
+      if (b->cells[i].revealed) {
+        continue;
+      }
+      int v = s->cm.var_of_cell[i];
+      if (v >= 0 &&
+          (s->cm.vstate[v] == VAR_SAFE || s->cm.vstate[v] == VAR_MINE)) {
+        continue; /* genuine single-point proof */
+      }
+      double p = out->cells[i].mine_prob;
+      if (p < kApproxLo) {
+        p = kApproxLo;
+      } else if (p > 1.0 - kApproxLo) {
+        p = 1.0 - kApproxLo;
+      }
+      out->cells[i].mine_prob = p;
+    }
+  }
 }
 
 /* Set forced flags, pick the lowest-risk move (row-major first on ties), and

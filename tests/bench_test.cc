@@ -83,10 +83,11 @@ TEST(BenchIntegration, GuessCalibrationSane) {
   EXPECT_NEAR(mean_pred, fatal_rate, 0.05);
 }
 
-/* Repro of the known Expert forced-safe-death defect. Enable (drop DISABLED_)
- * once the engine no longer assigns P(mine)=0 to a real mine on dense
- * fallback-path frontiers. */
-TEST(BenchIntegration, DISABLED_ExpertNeverKillsOnForcedSafe) {
+/* Regression: the engine must never assign forced-safe (P(mine)≈0 read as a
+ * proof) to a cell that is actually a mine. Was nonzero on Expert before the
+ * "approximate paths never masquerade as proofs" fix (engine write_cell_probs).
+ * Seeds 1..5000 at seed base 1 previously produced 3 such deaths. */
+TEST(BenchIntegration, ExpertNeverKillsOnForcedSafe) {
   struct BenchConfig c = mkcfg("expert", 30, 16, 99, 4, 5000, 1);
   struct Metrics m;
   bench_run(&c, &m);
