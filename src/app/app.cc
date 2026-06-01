@@ -141,6 +141,44 @@ static void app_start_timer(struct AppState* s) {
   }
 }
 
+/* Game-window ImGui: context + SDL3/renderer backends + chrome theme. */
+static void app_init_imgui(struct AppState* s) {
+  IMGUI_CHECKVERSION();
+  s->ctx_game = (void*)ImGui::CreateContext();
+  ImGuiIO* io = &ImGui::GetIO();
+  io->IniFilename = NULL; /* no imgui.ini */
+  ImGui_ImplSDL3_InitForSDLRenderer(s->window, s->renderer);
+  ImGui_ImplSDLRenderer3_Init(s->renderer);
+  ui_apply_theme();
+}
+
+/* Companion reasoning window: its own window + renderer + ImGui context (the
+ * SDL_Renderer backend has no multi-viewport). vsync OFF (static content) so it
+ * never double-stalls the game's vsync. Sets s->panel_on iff fully created. */
+static void app_init_panel(struct AppState* s) {
+  s->panel_window = SDL_CreateWindow("Solver - Reasoning", 300, 380, 0);
+  if (s->panel_window != NULL) {
+    /* Parent the companion to the game window so the compositor keeps it
+     * stacked above (xdg_toplevel.set_parent on Wayland / WM_TRANSIENT_FOR on
+     * X11). Self-raise (SDL_RaiseWindow) is ignored by Wayland compositors
+     * without a focus serial, so a parent relationship is the reliable way to
+     * keep the companion in front rather than behind the game. */
+    SDL_SetWindowParent(s->panel_window, s->window);
+    s->panel_renderer = SDL_CreateRenderer(s->panel_window, NULL);
+  }
+  if (s->panel_renderer != NULL) {
+    s->ctx_panel = (void*)ImGui::CreateContext();
+    ImGui::SetCurrentContext((ImGuiContext*)s->ctx_panel);
+    ImGuiIO* pio = &ImGui::GetIO();
+    pio->IniFilename = NULL;
+    ImGui_ImplSDL3_InitForSDLRenderer(s->panel_window, s->panel_renderer);
+    ImGui_ImplSDLRenderer3_Init(s->panel_renderer);
+    ImGui::StyleColorsDark(); /* default ImGui dark, not the game chrome */
+    ImGui::SetCurrentContext((ImGuiContext*)s->ctx_game);
+    s->panel_on = true;
+  }
+}
+
 /* ---- init -------------------------------------------------------------- */
 SDL_AppResult app_init(struct AppState** out, int argc, char** argv) {
   (void)argc;
@@ -208,39 +246,8 @@ SDL_AppResult app_init(struct AppState** out, int argc, char** argv) {
 
   audio_init(&s->audio, s->asset_dir);
 
-  /* ImGui. */
-  IMGUI_CHECKVERSION();
-  s->ctx_game = (void*)ImGui::CreateContext();
-  ImGuiIO* io = &ImGui::GetIO();
-  io->IniFilename = NULL; /* no imgui.ini */
-  ImGui_ImplSDL3_InitForSDLRenderer(s->window, s->renderer);
-  ImGui_ImplSDLRenderer3_Init(s->renderer);
-  ui_apply_theme();
-
-  /* Companion reasoning window: its own window + renderer + ImGui context
-   * (the SDL_Renderer backend has no multi-viewport). vsync OFF (static
-   * content) so it never double-stalls the game's vsync. */
-  s->panel_window = SDL_CreateWindow("Solver - Reasoning", 300, 380, 0);
-  if (s->panel_window != NULL) {
-    /* Parent the companion to the game window so the compositor keeps it
-     * stacked above (xdg_toplevel.set_parent on Wayland / WM_TRANSIENT_FOR on
-     * X11). Self-raise (SDL_RaiseWindow) is ignored by Wayland compositors
-     * without a focus serial, so a parent relationship is the reliable way to
-     * keep the companion in front rather than behind the game. */
-    SDL_SetWindowParent(s->panel_window, s->window);
-    s->panel_renderer = SDL_CreateRenderer(s->panel_window, NULL);
-  }
-  if (s->panel_renderer != NULL) {
-    s->ctx_panel = (void*)ImGui::CreateContext();
-    ImGui::SetCurrentContext((ImGuiContext*)s->ctx_panel);
-    ImGuiIO* pio = &ImGui::GetIO();
-    pio->IniFilename = NULL;
-    ImGui_ImplSDL3_InitForSDLRenderer(s->panel_window, s->panel_renderer);
-    ImGui_ImplSDLRenderer3_Init(s->panel_renderer);
-    ImGui::StyleColorsDark(); /* default ImGui dark, not the game chrome */
-    ImGui::SetCurrentContext((ImGuiContext*)s->ctx_game);
-    s->panel_on = true;
-  }
+  app_init_imgui(s);
+  app_init_panel(s);
   s->hover.x = -1;
   s->hover.y = -1;
 
@@ -588,6 +595,53 @@ static void app_apply_actions(struct AppState* s, const struct UiActions* a) {
   }
 }
 
+/* Smiley face for non-pressing states (pressing states are set by input). */
+static void app_resolve_face(struct AppState* s) {
+  if (!s->pressing_face && !s->pressing_board && !s->chord_active) {
+    if (s->board.status == GAME_LOST) {
+      s->button_face = BTN_LOSE;
+    } else if (s->board.status == GAME_WON) {
+      s->button_face = BTN_WIN;
+    } else {
+      s->button_face = BTN_HAPPY;
+    }
+  }
+}
+
+/* Companion reasoning window: separate ImGui context + renderer. No-op when the
+ * panel is hidden or was never created. */
+static void app_draw_panel(struct AppState* s) {
+  if (!(s->panel_on && s->panel_window != NULL && s->ctx_panel != NULL)) {
+    return;
+  }
+  struct ReasoningView rv;
+  reasoning_build(&s->board, &s->analysis, s->hover, &rv);
+
+  ImGui::SetCurrentContext((ImGuiContext*)s->ctx_panel);
+  ImGui_ImplSDLRenderer3_NewFrame();
+  ImGui_ImplSDL3_NewFrame();
+  ImGui::NewFrame();
+
+  ImGuiIO* pio = &ImGui::GetIO();
+  ImGui::SetNextWindowPos(ImVec2(0, 0));
+  ImGui::SetNextWindowSize(pio->DisplaySize);
+  ImGui::Begin("reasoning", NULL,
+               ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                   ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+                   ImGuiWindowFlags_NoBringToFrontOnFocus);
+  reasoning_panel_draw(&rv);
+  ImGui::End();
+
+  SDL_SetRenderDrawColor(s->panel_renderer, 30, 30, 30, 255);
+  SDL_RenderClear(s->panel_renderer);
+  ImGui::Render();
+  ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(),
+                                        s->panel_renderer);
+  SDL_RenderPresent(s->panel_renderer);
+
+  ImGui::SetCurrentContext((ImGuiContext*)s->ctx_game);
+}
+
 SDL_AppResult app_iterate(struct AppState* s) {
   struct Layout lay;
   struct UiActions actions;
@@ -630,16 +684,7 @@ SDL_AppResult app_iterate(struct AppState* s) {
   app_resize(s);
   app_compute_layout(s, &lay);
 
-  /* Resolve smiley face for non-pressing states. */
-  if (!s->pressing_face && !s->pressing_board && !s->chord_active) {
-    if (s->board.status == GAME_LOST) {
-      s->button_face = BTN_LOSE;
-    } else if (s->board.status == GAME_WON) {
-      s->button_face = BTN_WIN;
-    } else {
-      s->button_face = BTN_HAPPY;
-    }
-  }
+  app_resolve_face(s);
 
   /* Draw: board+chrome, then the analysis overlay (4), then ImGui on top. */
   SDL_SetRenderDrawColor(s->renderer, 192, 192, 192, 255);
@@ -657,35 +702,7 @@ SDL_AppResult app_iterate(struct AppState* s) {
   ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), s->renderer);
   SDL_RenderPresent(s->renderer);
 
-  /* Companion reasoning window: separate context, separate renderer. */
-  if (s->panel_on && s->panel_window != NULL && s->ctx_panel != NULL) {
-    struct ReasoningView rv;
-    reasoning_build(&s->board, &s->analysis, s->hover, &rv);
-
-    ImGui::SetCurrentContext((ImGuiContext*)s->ctx_panel);
-    ImGui_ImplSDLRenderer3_NewFrame();
-    ImGui_ImplSDL3_NewFrame();
-    ImGui::NewFrame();
-
-    ImGuiIO* pio = &ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(pio->DisplaySize);
-    ImGui::Begin("reasoning", NULL,
-                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-                     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-                     ImGuiWindowFlags_NoBringToFrontOnFocus);
-    reasoning_panel_draw(&rv);
-    ImGui::End();
-
-    SDL_SetRenderDrawColor(s->panel_renderer, 30, 30, 30, 255);
-    SDL_RenderClear(s->panel_renderer);
-    ImGui::Render();
-    ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(),
-                                          s->panel_renderer);
-    SDL_RenderPresent(s->panel_renderer);
-
-    ImGui::SetCurrentContext((ImGuiContext*)s->ctx_game);
-  }
+  app_draw_panel(s);
 
   return s->want_quit ? SDL_APP_SUCCESS : SDL_APP_CONTINUE;
 }
