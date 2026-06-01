@@ -1,3 +1,16 @@
+# Per-compiler warning flags. MSVC rejects the GCC/Clang -W* spellings (it maps
+# -Wall to /Wall, which is unusably noisy and, under warnings-as-errors, fails
+# the build), so pick the MSVC equivalent there. SOLVER_WARNINGS is the strict
+# set for our own code (compiled warnings-as-error, see below); REUSE_WARNINGS
+# is the looser, warnings-only set for the reused sibling sources.
+if(MSVC)
+  set(SOLVER_WARNINGS /W4)
+  set(REUSE_WARNINGS /W4)
+else()
+  set(SOLVER_WARNINGS -Wall -Wextra -Wpedantic)
+  set(REUSE_WARNINGS -Wall -Wextra)
+endif()
+
 # Reused sibling modules — every module except app.cc/main.cc. Preserves the
 # full original game (logic, render, assets, menus/dialogs, sounds, settings).
 # Built with warnings on but NOT -Werror (reused code, possibly a different
@@ -18,7 +31,7 @@ target_link_libraries(minesweeper_reuse PUBLIC
   imgui
   mini
 )
-target_compile_options(minesweeper_reuse PRIVATE -Wall -Wextra)
+target_compile_options(minesweeper_reuse PRIVATE ${REUSE_WARNINGS})
 
 # Engine + pure overlay helpers — no SDL, so engine_test/overlay_test link these
 # without a graphics stack.
@@ -33,7 +46,6 @@ target_include_directories(solver_lib PUBLIC
   ${PROJECT_SOURCE_DIR}/include
   ${MINESWEEPER_DIR}/include
 )
-set(SOLVER_WARNINGS -Wall -Wextra -Wpedantic)
 target_compile_options(solver_lib PRIVATE ${SOLVER_WARNINGS})
 
 # Executable: forked app + overlay draw + entry, on top of the reused game.
@@ -55,6 +67,14 @@ target_compile_options(minesweeper_solver PRIVATE ${SOLVER_WARNINGS})
 # --compile-no-warning-as-error. minesweeper_reuse stays warnings-only.
 set_target_properties(solver_lib minesweeper_solver PROPERTIES
   COMPILE_WARNING_AS_ERROR ${MINESWEEPER_SOLVER_WERROR})
+
+# MSVC flags ISO C functions (strncpy/snprintf/getenv/...) via C4996, steering to
+# its non-portable _s variants. This code is intentionally C-style; opt out so
+# /W4 + warnings-as-errors keeps flagging real warnings, not deprecations.
+if(MSVC)
+  target_compile_definitions(solver_lib PRIVATE _CRT_SECURE_NO_WARNINGS)
+  target_compile_definitions(minesweeper_solver PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
 
 # Orthodox C++ enforcement: our targets only (never deps, never reused code).
 if(orthodoxy_plugin_FOUND)
@@ -85,7 +105,7 @@ add_library(game_core STATIC
   ${MINESWEEPER_DIR}/src/util/util.cc
 )
 target_include_directories(game_core PUBLIC ${MINESWEEPER_DIR}/include)
-target_compile_options(game_core PRIVATE -Wall -Wextra)
+target_compile_options(game_core PRIVATE ${REUSE_WARNINGS})
 
 # Bench logic library (our code → Orthodoxy + warnings-as-error). std::thread /
 # std::atomic in runner.cc are a sanctioned, file-local exception.
@@ -105,6 +125,11 @@ target_compile_options(minesweeper_bench PRIVATE ${SOLVER_WARNINGS})
 
 set_target_properties(bench_lib minesweeper_bench PROPERTIES
   COMPILE_WARNING_AS_ERROR ${MINESWEEPER_SOLVER_WERROR})
+
+if(MSVC)
+  target_compile_definitions(bench_lib PRIVATE _CRT_SECURE_NO_WARNINGS)
+  target_compile_definitions(minesweeper_bench PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
 
 if(orthodoxy_plugin_FOUND)
   target_link_libraries(bench_lib PRIVATE orthodoxy::plugin)

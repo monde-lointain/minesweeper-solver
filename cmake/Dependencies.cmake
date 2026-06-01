@@ -42,6 +42,7 @@ set(SDL_TEST_LIBRARY OFF)
 set(SDL_TESTS OFF)
 set(SDL_EXAMPLES OFF)
 set(SDL_INSTALL OFF)
+set(SDL_X11_XTEST OFF)  # libxtst-dev not on CI runners; game uses no synthetic input
 FetchContent_MakeAvailable(SDL3)
 
 # ---------------------------------------------------------------------------
@@ -130,5 +131,9 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTS)
     GIT_SHALLOW TRUE
     SYSTEM
   )
+  # gtest defaults to the static /MT runtime on MSVC; the project uses the
+  # dynamic /MD runtime, so force the shared CRT to avoid LNK2038 when the
+  # SDL-free test exes link gtest.
+  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(googletest)
 endif()
