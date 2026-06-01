@@ -44,6 +44,11 @@ add_executable(engine_exact_test engine_exact_test.cc)
 target_link_libraries(engine_exact_test PRIVATE solver_lib gtest_main)
 gtest_discover_tests(engine_exact_test)
 
+# Pure reasoning_build (ReasoningView extraction for the companion panel).
+add_executable(reasoning_test reasoning_test.cc)
+target_link_libraries(reasoning_test PRIVATE solver_lib gtest_main)
+gtest_discover_tests(reasoning_test)
+
 # Benchmark harness tests. Each links bench_lib (which PUBLIC-propagates the
 # bench include dir + solver_lib/game_core). Per-module surfaces keep ownership
 # file-disjoint across streams; bench_test is the cross-module integration gate.

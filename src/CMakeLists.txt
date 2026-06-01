@@ -26,6 +26,7 @@ add_library(solver_lib STATIC
   engine/engine.cc
   engine/recommend.cc
   overlay/overlay_geom.cc
+  overlay/reasoning.cc
 )
 target_include_directories(solver_lib PUBLIC
   ${PROJECT_SOURCE_DIR}/include
