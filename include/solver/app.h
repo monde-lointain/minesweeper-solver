@@ -69,6 +69,15 @@ struct AppState {
   struct Analysis analysis;      /* recomputed when analysis_key changes */
   struct AnalysisKey analysis_key; /* last-analyzed board signature */
   bool overlay_on;                 /* F10 toggles the analysis overlay */
+
+  /* --- companion reasoning window --- */
+  SDL_Window* panel_window;
+  SDL_Renderer* panel_renderer;
+  void* ctx_game;  /* ImGuiContext* (opaque here to avoid an ImGui include) */
+  void* ctx_panel; /* ImGuiContext* */
+  bool panel_on;   /* F9 toggles the companion window */
+  int hover_x;     /* covered cell under the game cursor, -1 if none */
+  int hover_y;
 };
 
 /* Allocate + initialize: SDL, window/renderer, ImGui, config, assets, first

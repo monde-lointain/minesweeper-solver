@@ -26,6 +26,8 @@
 #include "minesweeper/config.h"
 #include "solver/engine.h"
 #include "solver/overlay.h"
+#include "solver/reasoning.h"
+#include "solver/reasoning_panel.h"
 
 /* (1) injected RNG so boards vary across launches. State is threaded through
  * the Rng.ctx slot (a pointer to AppState::rng_state), so no global is needed.
@@ -223,12 +225,33 @@ SDL_AppResult app_init(struct AppState** out, int argc, char** argv) {
 
   /* ImGui. */
   IMGUI_CHECKVERSION();
-  ImGui::CreateContext();
+  s->ctx_game = (void*)ImGui::CreateContext();
   ImGuiIO* io = &ImGui::GetIO();
   io->IniFilename = NULL; /* no imgui.ini */
   ImGui_ImplSDL3_InitForSDLRenderer(s->window, s->renderer);
   ImGui_ImplSDLRenderer3_Init(s->renderer);
   ui_apply_theme();
+
+  /* Companion reasoning window: its own window + renderer + ImGui context
+   * (the SDL_Renderer backend has no multi-viewport). vsync OFF (static
+   * content) so it never double-stalls the game's vsync. */
+  s->panel_window = SDL_CreateWindow("Solver - Reasoning", 300, 380, 0);
+  if (s->panel_window != NULL) {
+    s->panel_renderer = SDL_CreateRenderer(s->panel_window, NULL);
+  }
+  if (s->panel_renderer != NULL) {
+    s->ctx_panel = (void*)ImGui::CreateContext();
+    ImGui::SetCurrentContext((ImGuiContext*)s->ctx_panel);
+    ImGuiIO* pio = &ImGui::GetIO();
+    pio->IniFilename = NULL;
+    ImGui_ImplSDL3_InitForSDLRenderer(s->panel_window, s->panel_renderer);
+    ImGui_ImplSDLRenderer3_Init(s->panel_renderer);
+    ui_apply_theme();
+    ImGui::SetCurrentContext((ImGuiContext*)s->ctx_game);
+    s->panel_on = true;
+  }
+  s->hover_x = -1;
+  s->hover_y = -1;
 
   s->pending_name_level = -1;
   s->overlay_on = true; /* (5) overlay starts on */
@@ -239,6 +262,17 @@ SDL_AppResult app_init(struct AppState** out, int argc, char** argv) {
                           s->settings.window_y);
   }
   SDL_ShowWindow(s->window);
+
+  if (s->panel_window != NULL) {
+    int gx = 0;
+    int gy = 0;
+    int gw = 0;
+    int gh = 0;
+    SDL_GetWindowPosition(s->window, &gx, &gy);
+    SDL_GetWindowSize(s->window, &gw, &gh);
+    SDL_SetWindowPosition(s->panel_window, gx + gw + 8, gy);
+    SDL_ShowWindow(s->panel_window);
+  }
 
   *out = s;
   return SDL_APP_CONTINUE;
@@ -574,10 +608,25 @@ void app_quit(struct AppState* s) {
   config_save(&s->settings, s->pref_path);
 
   audio_shutdown(&s->audio);
+  if (s->ctx_panel != NULL) {
+    ImGui::SetCurrentContext((ImGuiContext*)s->ctx_panel);
+    ImGui_ImplSDLRenderer3_Shutdown();
+    ImGui_ImplSDL3_Shutdown();
+    ImGui::DestroyContext((ImGuiContext*)s->ctx_panel);
+    s->ctx_panel = NULL;
+  }
+  ImGui::SetCurrentContext((ImGuiContext*)s->ctx_game);
   ImGui_ImplSDLRenderer3_Shutdown();
   ImGui_ImplSDL3_Shutdown();
-  ImGui::DestroyContext();
+  ImGui::DestroyContext((ImGuiContext*)s->ctx_game);
+  s->ctx_game = NULL;
   assets_free(&s->assets);
+  if (s->panel_renderer != NULL) {
+    SDL_DestroyRenderer(s->panel_renderer);
+  }
+  if (s->panel_window != NULL) {
+    SDL_DestroyWindow(s->panel_window);
+  }
   if (s->renderer != NULL) {
     SDL_DestroyRenderer(s->renderer);
   }
