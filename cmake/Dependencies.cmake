@@ -1,6 +1,33 @@
 include(FetchContent)
 
 # ---------------------------------------------------------------------------
+# Minesweeper upstream — the original game this project overlays. We compile
+# selected sources into our own libraries (see src/CMakeLists.txt) rather than
+# building upstream's CMake project, so we only need its populated source tree:
+# SOURCE_SUBDIR names a path with no CMakeLists.txt, which makes
+# FetchContent_MakeAvailable() skip add_subdirectory(). Pinned to a specific
+# commit for reproducibility (no GIT_SHALLOW — shallow clones can't fetch an
+# arbitrary commit SHA). Skipped entirely when MINESWEEPER_DIR already names a
+# local checkout (-DMINESWEEPER_DIR=<path>).
+# ---------------------------------------------------------------------------
+if(NOT MINESWEEPER_DIR)
+  FetchContent_Declare(
+    minesweeper
+    GIT_REPOSITORY https://github.com/monde-lointain/minesweeper.git
+    GIT_TAG d62c0b248d90e92f62fa5078d2702877cdc31932
+    SOURCE_SUBDIR _sources_only_no_cmakelists
+  )
+  FetchContent_MakeAvailable(minesweeper)
+  set(MINESWEEPER_DIR "${minesweeper_SOURCE_DIR}")
+endif()
+if(NOT EXISTS "${MINESWEEPER_DIR}/src/game/game.cc")
+  message(FATAL_ERROR
+    "MINESWEEPER_DIR='${MINESWEEPER_DIR}' does not contain the minesweeper "
+    "sources (src/game/game.cc not found). Set -DMINESWEEPER_DIR=<path> to a "
+    "local checkout, or leave it empty to fetch the pinned upstream commit.")
+endif()
+
+# ---------------------------------------------------------------------------
 # SDL3 — must be made available BEFORE SDL_mixer (SDL_mixer reuses the in-tree
 # SDL3::SDL3 target only if it already exists).
 # ---------------------------------------------------------------------------

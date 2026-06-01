@@ -16,15 +16,12 @@ option(BUILD_TESTS "Build unit tests" ON)
 option(ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(MINESWEEPER_SOLVER_WERROR "Treat warnings as errors for project targets" ON)
 
-# Location of the sibling Minesweeper sources we reuse (game/render/assets/ui/
-# config/audio + the original BMP/WAV assets).
-set(MINESWEEPER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../minesweeper"
-    CACHE PATH "Path to the sibling minesweeper sources")
-if(NOT EXISTS "${MINESWEEPER_DIR}/src/game/game.cc")
-  message(FATAL_ERROR
-    "MINESWEEPER_DIR='${MINESWEEPER_DIR}' does not contain the minesweeper "
-    "sources (src/game/game.cc not found). Set -DMINESWEEPER_DIR=<path>.")
-endif()
+# Minesweeper upstream sources we reuse (game/render/assets/ui/config/audio/util
+# + the original BMP/WAV assets). Empty (the default) fetches the pinned upstream
+# commit; set to a local checkout to build against working sources instead.
+# Resolved (fetched when empty) and validated in cmake/Dependencies.cmake.
+set(MINESWEEPER_DIR "" CACHE PATH
+    "Path to a local minesweeper checkout (empty = fetch the pinned upstream commit)")
 
 if(ENABLE_SANITIZERS)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

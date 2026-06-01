@@ -165,7 +165,7 @@ void bench_usage(const char* prog) {
   printf(
       "usage: %s [options]\n"
       "  --difficulty beginner|intermediate|expert   (default: expert)\n"
-      "  --width W --height H --mines M               custom board (<=30x24)\n"
+      "  --width W --height H --mines M               custom board (<=100x100)\n"
       "  --games N        number of games            (default: 1000000)\n"
       "  --seed S         base RNG seed; game i uses seed+i   (default: 1)\n"
       "  --threads T      worker threads, 0=auto      (default: 0)\n"

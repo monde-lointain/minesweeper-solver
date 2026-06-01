@@ -37,14 +37,14 @@ TEST(BenchCli, PresetIntermediateAndScalarFlags) {
 }
 
 TEST(BenchCli, CustomDimsClampToEnvelope) {
-  char* av[] = {(char*)"bench",    (char*)"--width", (char*)"99",
-                (char*)"--height", (char*)"99",      (char*)"--mines",
+  char* av[] = {(char*)"bench",    (char*)"--width", (char*)"999",
+                (char*)"--height", (char*)"999",     (char*)"--mines",
                 (char*)"100"};
   struct BenchConfig c;
   const char* e = NULL;
   ASSERT_EQ(bench_parse_args(7, av, &c, &e), 0);
-  EXPECT_EQ(c.width, 30);  /* clamped 99 -> 30 */
-  EXPECT_EQ(c.height, 24); /* clamped 99 -> 24 */
+  EXPECT_EQ(c.width, 100);  /* clamped 999 -> BOARD_MAX_W */
+  EXPECT_EQ(c.height, 100); /* clamped 999 -> BOARD_MAX_H */
   EXPECT_EQ(c.mines, 100);
   EXPECT_STREQ(c.label, "custom");
 }
