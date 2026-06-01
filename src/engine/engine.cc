@@ -728,15 +728,12 @@ static void compute_interior_prob(const struct Board* b,
   ctx->interior_prob = interior_prob;
 }
 
-/* Write every covered cell's P(mine): deduced/interior baseline, then exact
- * component marginals, then naive fallback components. */
-static void write_cell_probs(const struct Board* b, struct Analysis* out,
-                             struct SolverScratch* s,
-                             const struct AnalyzeCtx* ctx) {
+/* deduced/single-point + interior baseline for every covered cell.
+ * out->cells was already zeroed by memset in solver_analyze. */
+static void write_baseline_probs(const struct Board* b, struct Analysis* out,
+                                 struct SolverScratch* s,
+                                 const struct AnalyzeCtx* ctx) {
   int ncells = ctx->ncells;
-  /* out->cells was already zeroed by memset in solver_analyze. */
-
-  /* deduced + interior */
   for (int i = 0; i < ncells; ++i) {
     if (b->cells[i].revealed) {
       continue;
@@ -756,45 +753,52 @@ static void write_cell_probs(const struct Board* b, struct Analysis* out,
       out->cells[i].mine_prob = 0.5; /* overwritten below if exact */
     }
   }
+}
 
-  /* exact component marginals: P(v) = (sum_k mhat[v][k]*A_c[k]) / zsum */
-  if (ctx->exact_ok && ctx->zsum > 0.0L) {
-    for (int e = 0; e < ctx->nexact; ++e) {
-      int c = s->dp.exact_idx[e];
-      /* O_c = prefix[e] (x) suffix[e+1] */
-      int oclen = 0;
-      conv(s->dp.prefix[e], s->dp.prefix_len[e], s->dp.suffix[e + 1],
-           s->dp.suffix_len[e + 1], s->dp.oc, &oclen);
-      /* fold in the fallback distribution so c's complement covers ALL other
-       * frontier mines (other exact comps + fallback comps). */
-      int oc2len = 0;
-      conv(s->dp.oc, oclen, s->dp.fbdist, s->dp.fbdist_len, s->dp.oc2, &oc2len);
-      /* A_c[k] = sum_t oc2[t] * C(interior_n, r_eff - k - t) */
-      long double ac[MAX_COMP_VARS + 1];
+/* exact component marginals: P(v) = (sum_k mhat[v][k]*A_c[k]) / zsum */
+static void write_exact_marginals(struct Analysis* out, struct SolverScratch* s,
+                                  const struct AnalyzeCtx* ctx) {
+  if (!(ctx->exact_ok && ctx->zsum > 0.0L)) {
+    return;
+  }
+  for (int e = 0; e < ctx->nexact; ++e) {
+    int c = s->dp.exact_idx[e];
+    /* O_c = prefix[e] (x) suffix[e+1] */
+    int oclen = 0;
+    conv(s->dp.prefix[e], s->dp.prefix_len[e], s->dp.suffix[e + 1],
+         s->dp.suffix_len[e + 1], s->dp.oc, &oclen);
+    /* fold in the fallback distribution so c's complement covers ALL other
+     * frontier mines (other exact comps + fallback comps). */
+    int oc2len = 0;
+    conv(s->dp.oc, oclen, s->dp.fbdist, s->dp.fbdist_len, s->dp.oc2, &oc2len);
+    /* A_c[k] = sum_t oc2[t] * C(interior_n, r_eff - k - t) */
+    long double ac[MAX_COMP_VARS + 1];
+    for (int k = 0; k <= s->res.nv[c]; ++k) {
+      long double sm = 0.0L;
+      for (int t = 0; t < oc2len; ++t) {
+        if (s->dp.oc2[t] == 0.0L) {
+          continue;
+        }
+        sm += s->dp.oc2[t] * binom_ld(ctx->interior_n, ctx->r_eff - k - t);
+      }
+      ac[k] = sm;
+    }
+    int* gv = res_gv(s, c);
+    for (int lv = 0; lv < s->res.nv[c]; ++lv) {
+      long double* mh = res_mhat(s, c, lv);
+      long double num = 0.0L;
       for (int k = 0; k <= s->res.nv[c]; ++k) {
-        long double sm = 0.0L;
-        for (int t = 0; t < oc2len; ++t) {
-          if (s->dp.oc2[t] == 0.0L) {
-            continue;
-          }
-          sm += s->dp.oc2[t] * binom_ld(ctx->interior_n, ctx->r_eff - k - t);
-        }
-        ac[k] = sm;
+        num += mh[k] * ac[k];
       }
-      int* gv = res_gv(s, c);
-      for (int lv = 0; lv < s->res.nv[c]; ++lv) {
-        long double* mh = res_mhat(s, c, lv);
-        long double num = 0.0L;
-        for (int k = 0; k <= s->res.nv[c]; ++k) {
-          num += mh[k] * ac[k];
-        }
-        int cell = s->cm.cell_of_var[gv[lv]];
-        out->cells[cell].mine_prob = (double)solver_clamp01(num / ctx->zsum);
-      }
+      int cell = s->cm.cell_of_var[gv[lv]];
+      out->cells[cell].mine_prob = (double)solver_clamp01(num / ctx->zsum);
     }
   }
+}
 
-  /* fallback components: naive probs directly */
+/* fallback components: naive probs directly */
+static void write_fallback_probs(struct Analysis* out, struct SolverScratch* s,
+                                 const struct AnalyzeCtx* ctx) {
   for (int c = 0; c < ctx->ncomp; ++c) {
     if (!ctx->exact_ok || s->res.fallback[c]) {
       int* gv = res_gv(s, c);
@@ -805,20 +809,25 @@ static void write_cell_probs(const struct Board* b, struct Analysis* out,
       }
     }
   }
+}
 
-  /* Approximate paths must never masquerade as proofs: a P(mine) of exactly 0/1
-   * from an APPROXIMATE source (naive fallback, or the crude no-DP path) is not
-   * a real proof, so clamp it away from {0,1} — else pick_best_move marks it
-   * forced and the policy walks into a mispriced mine.
-   *
-   * This is PER-COMPONENT (a cell safe in all local solutions is safe in all
-   * global solutions, so an EXACT component's 0/1 IS a proof and must be kept;
-   * the Gaussian reduction makes mixed exact+fallback boards common, where a
-   * board-global clamp would discard the reduction's hard-won forced cells).
-   * Clamp only: (a) cells in a fallback component, or (b) everything when the
-   * exact DP did not run (!exact_ok). Single-point-deduced cells and exact /
-   * interior cells keep their exact 0/1. */
+/* Approximate paths must never masquerade as proofs: a P(mine) of exactly 0/1
+ * from an APPROXIMATE source (naive fallback, or the crude no-DP path) is not
+ * a real proof, so clamp it away from {0,1} — else pick_best_move marks it
+ * forced and the policy walks into a mispriced mine.
+ *
+ * This is PER-COMPONENT (a cell safe in all local solutions is safe in all
+ * global solutions, so an EXACT component's 0/1 IS a proof and must be kept;
+ * the Gaussian reduction makes mixed exact+fallback boards common, where a
+ * board-global clamp would discard the reduction's hard-won forced cells).
+ * Clamp only: (a) cells in a fallback component, or (b) everything when the
+ * exact DP did not run (!exact_ok). Single-point-deduced cells and exact /
+ * interior cells keep their exact 0/1. */
+static void clamp_approx_probs(const struct Board* b, struct Analysis* out,
+                               struct SolverScratch* s,
+                               const struct AnalyzeCtx* ctx) {
   const double kApproxLo = 1e-6; /* >> EPS (1e-9): never reads as forced */
+  int ncells = ctx->ncells;
   for (int i = 0; i < ncells; ++i) {
     if (b->cells[i].revealed) {
       continue;
@@ -849,6 +858,18 @@ static void write_cell_probs(const struct Board* b, struct Analysis* out,
     }
     out->cells[i].mine_prob = p;
   }
+}
+
+/* Write every covered cell's P(mine): deduced/interior baseline, exact
+ * component marginals, naive fallback components, then the approximate-source
+ * 0/1 clamp. out->cells was already zeroed by memset in solver_analyze. */
+static void write_cell_probs(const struct Board* b, struct Analysis* out,
+                             struct SolverScratch* s,
+                             const struct AnalyzeCtx* ctx) {
+  write_baseline_probs(b, out, s, ctx);
+  write_exact_marginals(out, s, ctx);
+  write_fallback_probs(out, s, ctx);
+  clamp_approx_probs(b, out, s, ctx);
 }
 
 /* Set forced flags, pick the lowest-risk move (row-major first on ties), and
