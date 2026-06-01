@@ -272,6 +272,7 @@ SDL_AppResult app_init(struct AppState** out, int argc, char** argv) {
     SDL_GetWindowSize(s->window, &gw, &gh);
     SDL_SetWindowPosition(s->panel_window, gx + gw + 8, gy);
     SDL_ShowWindow(s->panel_window);
+    SDL_RaiseWindow(s->panel_window); /* start on top, not behind the game */
   }
 
   *out = s;
