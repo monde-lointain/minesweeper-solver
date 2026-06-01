@@ -106,6 +106,22 @@ TEST(Reasoning, NotRiskierWhenPickIsSafest) {
   EXPECT_EQ(v.safest_pct, 10);
 }
 
+TEST(Reasoning, StartMoveIsZeroRisk) {
+  /* At EVAL_START the engine's mine_prob is the uniform density, but the first
+   * click is guaranteed safe — the readout must show 0% risk, not the density. */
+  struct Board b;
+  mkboard(&b, 9, 9);
+  struct Analysis a;
+  mkanalysis(&a, &b, 0.123);  // uniform 10/81 density on every cell
+  a.eval = EVAL_START;
+  struct ReasoningView v;
+  reasoning_build(&b, &a, -1, -1, &v);
+  ASSERT_TRUE(v.has_move);
+  EXPECT_EQ(v.move_x, 0);
+  EXPECT_EQ(v.move_y, 0);
+  EXPECT_EQ(v.risk_pct, 0);
+}
+
 TEST(Reasoning, HoverCoveredCellFilled) {
   struct Board b;
   mkboard(&b, 5, 3);

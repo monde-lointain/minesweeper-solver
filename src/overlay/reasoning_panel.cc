@@ -57,6 +57,8 @@ void reasoning_panel_draw(const struct ReasoningView* v) {
     ImGui::ProgressBar((float)v->risk_pct / 100.0f, ImVec2(-1.0f, 6.0f), "");
     if (v->verdict == EVAL_SAFE) {
       ImGui::BulletText("forced safe by deduction");
+    } else if (v->verdict == EVAL_START) {
+      ImGui::BulletText("first move - always safe");
     } else if (v->verdict == EVAL_GUESS) {
       if (v->took_riskier) {
         ImGui::BulletText("took +%d%% over safest (%d%%)",

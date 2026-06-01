@@ -45,6 +45,12 @@ void reasoning_build(const struct Board* b, const struct Analysis* a,
     out->move_x = rx;
     out->move_y = ry;
     out->risk_pct = reasoning_pct(a->cells[idx].mine_prob);
+    /* The first click is guaranteed safe (single-cell first-click safety), so
+     * the opening move's true risk is 0 — not the uniform board density that
+     * the engine uses only to rank opening cells. */
+    if (a->eval == EVAL_START) {
+      out->risk_pct = 0;
+    }
     out->pick_gain = a->cells[idx].info_gain;
 
     double pmin = 2.0;
