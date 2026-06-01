@@ -40,6 +40,7 @@ add_executable(minesweeper_solver
   main.cc
   app/app.cc
   overlay/overlay.cc
+  overlay/reasoning_panel.cc
 )
 target_include_directories(minesweeper_solver PRIVATE
   ${PROJECT_SOURCE_DIR}/include
