@@ -4,6 +4,10 @@
  * identities, integer predicates, div-by-zero + invalid propagation, int64
  * overflow flagged (not silently wrapped), and a property check of add/sub/mul
  * against an independent __int128 reduced reference over random small operands.
+ *
+ * The __int128 reference oracle and the property test that uses it are compiled
+ * only on GCC/Clang (where __SIZEOF_INT128__ is defined).  On MSVC the other
+ * tests still run, exercising the portable emulation.
  */
 #include "rational.h"
 
@@ -12,6 +16,7 @@
 
 namespace {
 
+#if defined(__SIZEOF_INT128__)
 /* Independent reference: reduce num/den (given in __int128) to lowest terms,
  * positive denominator. Returns false if it does not fit int64 (caller then
  * expects the primitive to report invalid). */
@@ -38,6 +43,7 @@ bool ref_reduce(__int128 num, __int128 den, int64_t* on, int64_t* od) {
   *od = (int64_t)den;
   return true;
 }
+#endif /* defined(__SIZEOF_INT128__) */
 
 struct Rat make(int64_t n, int64_t d) {
   return rat_div(rat_from_i64(n), rat_from_i64(d));
@@ -117,6 +123,7 @@ TEST(Rational, OverflowFlaggedNotWrapped) {
   EXPECT_EQ(keep.den, 2);
 }
 
+#if defined(__SIZEOF_INT128__)
 TEST(Rational, PropertyVsInt128Reference) {
   uint64_t seed = 0x9E3779B97F4A7C15ULL;
   for (int i = 0; i < 20000; ++i) {
@@ -161,3 +168,4 @@ TEST(Rational, PropertyVsInt128Reference) {
     EXPECT_EQ(mul.den, rd);
   }
 }
+#endif /* defined(__SIZEOF_INT128__) */
