@@ -409,8 +409,57 @@ static void app_set_paused(struct AppState* s, bool paused) {
   s->paused = paused;
 }
 
+/* The window an event targets, or 0 if it has none. Used to route ImGui event
+ * processing to the matching context. */
+static SDL_WindowID app_event_window(const SDL_Event* e) {
+  switch (e->type) {
+    case SDL_EVENT_MOUSE_MOTION:
+      return e->motion.windowID;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+      return e->button.windowID;
+    case SDL_EVENT_MOUSE_WHEEL:
+      return e->wheel.windowID;
+    case SDL_EVENT_KEY_DOWN:
+    case SDL_EVENT_KEY_UP:
+      return e->key.windowID;
+    case SDL_EVENT_TEXT_INPUT:
+      return e->text.windowID;
+    default:
+      if (e->type >= SDL_EVENT_WINDOW_FIRST &&
+          e->type <= SDL_EVENT_WINDOW_LAST) {
+        return e->window.windowID;
+      }
+      return 0;
+  }
+}
+
 SDL_AppResult app_event(struct AppState* s, SDL_Event* event) {
+  SDL_WindowID wid = app_event_window(event);
+  bool is_panel = (s->panel_window != NULL &&
+                   wid == SDL_GetWindowID(s->panel_window));
+
+  /* Feed the event to the context that owns the target window. */
+  ImGui::SetCurrentContext(
+      (ImGuiContext*)(is_panel ? s->ctx_panel : s->ctx_game));
   ImGui_ImplSDL3_ProcessEvent(event);
+  ImGui::SetCurrentContext((ImGuiContext*)s->ctx_game);
+
+  /* Companion window: x hides it (never quits the app); otherwise ImGui owns
+   * its interactions. */
+  if (is_panel) {
+    if (event->type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+      SDL_HideWindow(s->panel_window);
+      s->panel_on = false;
+    }
+    return SDL_APP_CONTINUE;
+  }
+
+  /* Game window x quits. */
+  if (event->type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+    return SDL_APP_SUCCESS;
+  }
+
   ImGuiIO* io = &ImGui::GetIO();
 
   switch (event->type) {
@@ -436,6 +485,15 @@ SDL_AppResult app_event(struct AppState* s, SDL_Event* event) {
           app_resize(s);
         } else if (event->key.key == SDLK_F10) {
           s->overlay_on = !s->overlay_on; /* (5) */
+        } else if (event->key.key == SDLK_F9) {
+          s->panel_on = !s->panel_on;
+          if (s->panel_window != NULL) {
+            if (s->panel_on) {
+              SDL_ShowWindow(s->panel_window);
+            } else {
+              SDL_HideWindow(s->panel_window);
+            }
+          }
         }
       }
       break;
