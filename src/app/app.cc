@@ -592,6 +592,36 @@ SDL_AppResult app_iterate(struct AppState* s) {
   ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), s->renderer);
   SDL_RenderPresent(s->renderer);
 
+  /* Companion reasoning window: separate context, separate renderer. */
+  if (s->panel_on && s->panel_window != NULL && s->ctx_panel != NULL) {
+    struct ReasoningView rv;
+    reasoning_build(&s->board, &s->analysis, s->hover_x, s->hover_y, &rv);
+
+    ImGui::SetCurrentContext((ImGuiContext*)s->ctx_panel);
+    ImGui_ImplSDLRenderer3_NewFrame();
+    ImGui_ImplSDL3_NewFrame();
+    ImGui::NewFrame();
+
+    ImGuiIO* pio = &ImGui::GetIO();
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(pio->DisplaySize);
+    ImGui::Begin("reasoning", NULL,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+                     ImGuiWindowFlags_NoBringToFrontOnFocus);
+    reasoning_panel_draw(&rv);
+    ImGui::End();
+
+    SDL_SetRenderDrawColor(s->panel_renderer, 30, 30, 30, 255);
+    SDL_RenderClear(s->panel_renderer);
+    ImGui::Render();
+    ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(),
+                                          s->panel_renderer);
+    SDL_RenderPresent(s->panel_renderer);
+
+    ImGui::SetCurrentContext((ImGuiContext*)s->ctx_game);
+  }
+
   return s->want_quit ? SDL_APP_SUCCESS : SDL_APP_CONTINUE;
 }
 
