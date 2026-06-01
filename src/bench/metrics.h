@@ -35,6 +35,13 @@ struct Metrics {
 
   uint64_t deaths_on_forced_safe; /* must be 0; >0 ⇒ engine correctness bug */
 
+  /* EVAL_SAFE band leak: the policy's risk band can pick a non-proven-safe
+   * (0,band] cell at EVAL_SAFE (where a proven-safe cell exists) for higher
+   * progress. safe_risky_picks counts those picks; safe_risky_deaths the ones
+   * that hit a mine — a death taken when a free safe reveal was available. */
+  uint64_t safe_risky_picks;
+  uint64_t safe_risky_deaths;
+
   long double loss_progress_sum; /* sum over losses of revealed fraction */
 
   /* perf */

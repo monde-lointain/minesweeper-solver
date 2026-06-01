@@ -136,3 +136,26 @@ TEST(Recommend, Deterministic) {
   EXPECT_EQ(x1, x2);
   EXPECT_EQ(y1, y2);
 }
+
+/* At EVAL_SAFE the risk band is suppressed: a proven-safe (0%) cell is chosen
+ * even when an in-band (0,band] cell has strictly higher progress. Without the
+ * gate the risky corner (5,0) — three proven-safe neighbors => cascade 1 =>
+ * highest progress — would win. A paired 200k-Expert test favored the gate
+ * (McNemar chi2=17.9, p<0.001). */
+TEST(Recommend, SafeGateRejectsRiskyBand) {
+  struct Board b;
+  mkboard(&b, 6, 3);
+  struct Analysis a;
+  mkanalysis(&a, &b, 0.5); /* most cells high-risk -> outside the band */
+  a.eval = EVAL_SAFE;
+  setp(&a, &b, 5, 0, 0.01); /* risky, in band, max progress */
+  setp(&a, &b, 4, 0, 0.0);
+  setp(&a, &b, 5, 1, 0.0);
+  setp(&a, &b, 4, 1, 0.0);
+  setp(&a, &b, 0, 2, 0.0); /* a far proven-safe cell, lower progress */
+  int x = -1;
+  int y = -1;
+  ASSERT_EQ(solver_recommend_move(&b, &a, &x, &y), 0);
+  EXPECT_LT(a.cells[game_index(&b, x, y)].mine_prob, 1e-9);
+  EXPECT_FALSE(x == 5 && y == 0);
+}

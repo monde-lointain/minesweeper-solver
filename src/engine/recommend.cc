@@ -8,7 +8,9 @@
  * minimum risk, prefer max info_gain (paper's Inf(x) — # cells forced if this
  * reveal is safe; filled by solver_analyze_infogain), then max progress
  * (frontier connectivity + cascade likelihood), then row-major for determinism.
- * Opening (EVAL_START) is pinned to the engine pick. Pure, no allocation.
+ * Opening (EVAL_START) is pinned to the engine pick. The band is suppressed at
+ * EVAL_SAFE (a proven-safe cell exists) so certain safety is never traded for
+ * progress. Pure, no allocation.
  *
  * Orthodox C++: POD, pointers, C headers.
  */
@@ -85,8 +87,13 @@ int solver_recommend_move(const struct Board* b, const struct Analysis* a,
   }
 
   /* Pass 2: among cells within the band of pmin, lexicographic
-   * (info_gain, progress), row-major first on ties. */
-  double thresh = pmin + RECOMMEND_BAND + 1e-12;
+   * (info_gain, progress), row-major first on ties. The band is suppressed at
+   * EVAL_SAFE so a proven-safe (0%) cell is never passed over for a (0,band]
+   * cell — trading certain safety for progress there is strictly dominated
+   * (the informative cell stays available; a paired 200k-Expert test favored
+   * the gate, McNemar chi2=17.9). */
+  double band = (a->eval == EVAL_SAFE) ? 0.0 : RECOMMEND_BAND;
+  double thresh = pmin + band + 1e-12;
   int best_gain = -1;
   double best_prog = -1.0;
   int bx = -1;

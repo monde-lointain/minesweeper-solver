@@ -28,6 +28,8 @@ void metrics_merge(struct Metrics* dst, const struct Metrics* src) {
     dst->cal_mine[i] += src->cal_mine[i];
   }
   dst->deaths_on_forced_safe += src->deaths_on_forced_safe;
+  dst->safe_risky_picks += src->safe_risky_picks;
+  dst->safe_risky_deaths += src->safe_risky_deaths;
   dst->loss_progress_sum += src->loss_progress_sum;
   dst->analyze_calls += src->analyze_calls;
   dst->analyze_ns_sum += src->analyze_ns_sum;
@@ -42,6 +44,12 @@ void metrics_record_decision(struct Metrics* m, int eval, double pred,
     m->start_moves += 1;
   } else if (eval == EVAL_SAFE) {
     m->safe_moves += 1;
+    if (!forced_safe) {
+      m->safe_risky_picks += 1;
+      if (was_mine) {
+        m->safe_risky_deaths += 1;
+      }
+    }
   } else if (eval == EVAL_GUESS) {
     m->guess_moves += 1;
     m->guess_risk_sum += (long double)pred;
@@ -146,6 +154,11 @@ void metrics_print(const struct Metrics* m, const char* label, double wall_sec,
          guess_surv);
   printf("deaths@forced-safe %llu  (MUST be 0)\n",
          (unsigned long long)m->deaths_on_forced_safe);
+  printf(
+      "safe-band risky    picks=%llu deaths=%llu  (EVAL_SAFE non-proven "
+      "pick)\n",
+      (unsigned long long)m->safe_risky_picks,
+      (unsigned long long)m->safe_risky_deaths);
   printf("mean loss depth  %.4f revealed-fraction\n", mean_loss_depth);
   printf("analyze          %.1f us mean, %.1f us max (%llu calls)\n", mean_us,
          max_us, (unsigned long long)m->analyze_calls);
