@@ -1,9 +1,9 @@
 /* recommend.h — shared move recommendation (info-gain guess policy).
  *
  * solver_recommend_move returns the covered cell to play for an analysis: the
- * paper's min-risk + info-gain pick. The benchmark policy (policy_infogain.cc)
- * and the GUI overlay both call this, so the move the overlay highlights is the
- * exact move the benchmark plays — they agree by construction.
+ * paper's min-risk + info-gain pick. The benchmark policy (policy.cc,
+ * POLICY_INFOGAIN) and the GUI overlay both call this, so the move the overlay
+ * highlights is the exact move the benchmark plays — they agree by construction.
  *
  * Requires a->cells[].info_gain populated (solver_analyze_infogain) for the
  * info-gain tie-break to fire; without it the pick reduces to min-risk +
