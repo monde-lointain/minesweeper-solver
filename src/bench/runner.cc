@@ -14,6 +14,9 @@
 
 #include <stdlib.h>
 #include <time.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #include <atomic>
 #include <thread>
@@ -23,11 +26,22 @@
 
 enum { BENCH_MAX_THREADS = 256, BENCH_CHUNK = 128 };
 
+#ifdef _WIN32
+static uint64_t now_ns(void) {
+  LARGE_INTEGER c, f;
+  QueryPerformanceCounter(&c);
+  QueryPerformanceFrequency(&f);
+  uint64_t whole = (uint64_t)c.QuadPart / (uint64_t)f.QuadPart;
+  uint64_t rem   = (uint64_t)c.QuadPart % (uint64_t)f.QuadPart;
+  return whole * 1000000000ULL + (rem * 1000000000ULL) / (uint64_t)f.QuadPart;
+}
+#else
 static uint64_t now_ns(void) {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
   return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
 }
+#endif
 
 /* Play one seeded game into `out`, reusing scratch `sc` and analysis `a`. */
 static void play_one(const struct BenchConfig* cfg, uint32_t seed,

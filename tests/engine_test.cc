@@ -15,6 +15,12 @@ namespace {
 
 constexpr int kMaxC = 64; /* tests use boards up to 8x8 */
 
+static int popcount_u64(unsigned long long x) {
+  int c = 0;
+  while (x) { x &= x - 1; ++c; }
+  return c;
+}
+
 struct TB {
   int w;
   int h;
@@ -97,7 +103,7 @@ long long brute(const TB& tb, double* prob) {
 
   bool placed[kMaxC];
   for (unsigned long long mask = 0; mask < (1ULL << nc); ++mask) {
-    if (__builtin_popcountll(mask) != total_mines) continue;
+    if (popcount_u64(mask) != total_mines) continue;
     for (int i = 0; i < tb.w * tb.h; ++i) placed[i] = false;
     for (int j = 0; j < nc; ++j)
       if (mask & (1ULL << j)) placed[covered[j]] = true;

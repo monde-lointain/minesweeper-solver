@@ -4,16 +4,28 @@
  */
 #include <stdio.h>
 #include <time.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #include "args.h"
 #include "metrics.h"
 #include "runner.h"
 
+#ifdef _WIN32
+static double wall_now(void) {
+  LARGE_INTEGER c, f;
+  QueryPerformanceCounter(&c);
+  QueryPerformanceFrequency(&f);
+  return (double)c.QuadPart / (double)f.QuadPart;
+}
+#else
 static double wall_now(void) {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
   return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
 }
+#endif
 
 int main(int argc, char** argv) {
   struct BenchConfig cfg;
