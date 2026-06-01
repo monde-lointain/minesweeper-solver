@@ -6,8 +6,9 @@
  *      the paper's Inf(x), computed exactly by the engine (re-deduction with
  * the cell pinned safe). This is the real version of the cheap connectivity
  *      proxy in policy_heuristic.
- *   2. max cascade     — P(cell reveals 0) ~= prod over covered neighbors of
- *      (1 - P(mine_n)), opening fresh area when no guess forces anything.
+ *   2. max progress    — the SAME connectivity + cascade score POLICY_HEURISTIC
+ *      uses, so when no band candidate forces anything (info_gain all 0, the
+ *      common case) this policy reduces exactly to the winning heuristic.
  *   3. row-major       — determinism.
  * Pure, no allocation. Opening (EVAL_START) pinned to the engine pick so it
  * stays identical to baseline (paired comparisons).
@@ -17,11 +18,16 @@
 #include "policy_tuning.h"
 #include "solver/engine.h"
 
-/* P(cell (x,y) reveals 0) approximated as the product over covered neighbors of
- * (1 - P(mine)); revealed neighbors are known-safe (factor 1). */
-static double cascade_score(const struct Board* b, const struct Analysis* a,
-                            int x, int y) {
-  double c = 1.0;
+/* Progress proxy if (x,y) turns out safe — the SAME score the (winning)
+ * heuristic policy uses: frontier connectivity (revealed-numbered-neighbor
+ * count) + cascade likelihood P(cell reveals 0). Used as the secondary key so
+ * that when no band candidate forces anything (info_gain all 0 — the common
+ * case) this policy is identical to POLICY_HEURISTIC, and info_gain only adds a
+ * preference for forcing guesses on top. */
+static double progress_score(const struct Board* b, const struct Analysis* a,
+                             int x, int y) {
+  double cascade = 1.0;
+  int connect = 0;
   for (int dy = -1; dy <= 1; ++dy) {
     for (int dx = -1; dx <= 1; ++dx) {
       if (dx == 0 && dy == 0) {
@@ -33,12 +39,14 @@ static double cascade_score(const struct Board* b, const struct Analysis* a,
         continue;
       }
       int idx = game_index(b, nx, ny);
-      if (!b->cells[idx].revealed) {
-        c *= (1.0 - a->cells[idx].mine_prob);
+      if (b->cells[idx].revealed) {
+        ++connect;
+      } else {
+        cascade *= (1.0 - a->cells[idx].mine_prob);
       }
     }
   }
-  return c;
+  return HEUR_W_CONNECT * ((double)connect / 8.0) + HEUR_W_CASCADE * cascade;
 }
 
 int policy_infogain_select(const struct Board* b, const struct Analysis* a,
@@ -69,7 +77,7 @@ int policy_infogain_select(const struct Board* b, const struct Analysis* a,
    * (info_gain, cascade), row-major first on ties. */
   double thresh = pmin + HEUR_BAND + 1e-12;
   int best_gain = -1;
-  double best_cascade = -1.0;
+  double best_prog = -1.0;
   int bx = -1;
   int by = -1;
   for (int y = 0; y < b->height; ++y) {
@@ -82,10 +90,10 @@ int policy_infogain_select(const struct Board* b, const struct Analysis* a,
         continue;
       }
       int gain = a->cells[i].info_gain;
-      double cascade = cascade_score(b, a, x, y);
-      if (gain > best_gain || (gain == best_gain && cascade > best_cascade)) {
+      double prog = progress_score(b, a, x, y);
+      if (gain > best_gain || (gain == best_gain && prog > best_prog)) {
         best_gain = gain;
-        best_cascade = cascade;
+        best_prog = prog;
         bx = x;
         by = y;
       }

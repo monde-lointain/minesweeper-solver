@@ -1376,17 +1376,29 @@ static int component_infogain(struct SolverScratch* s, int comp, int pin_var) {
   return gain;
 }
 
-/* Fill info_gain for every non-forced frontier cell in an exact component.
- * Called only at EVAL_GUESS; clobbers only the transient ec/rd scratch. */
+/* Only competitive guesses are worth pricing: a policy guesses near the minimum
+ * risk, so info_gain is computed solely for frontier cells within this band of
+ * best_prob. Must stay >= the bench's guess band (HEUR_BAND) so every cell a
+ * policy considers is covered; widening it only costs time, never correctness.
+ */
+static const double INFOGAIN_BAND = 0.05;
+
+/* Fill info_gain for non-forced frontier cells near the minimum risk in an exact
+ * component. Called only at EVAL_GUESS; clobbers only the transient ec/rd
+ * scratch. */
 static void compute_infogain(const struct Board* b, struct Analysis* out,
                              struct SolverScratch* s) {
   int ncells = b->width * b->height;
+  double thresh = out->best_prob + INFOGAIN_BAND;
   for (int i = 0; i < ncells; ++i) {
     if (b->cells[i].revealed) {
       continue;
     }
     if (!out->cells[i].is_frontier || out->cells[i].forced_mine) {
       continue;
+    }
+    if (out->cells[i].mine_prob > thresh) {
+      continue; /* not a competitive guess */
     }
     int v = s->cm.var_of_cell[i];
     if (v < 0 || s->cm.vstate[v] != VAR_UNKNOWN) {
