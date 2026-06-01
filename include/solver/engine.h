@@ -29,8 +29,8 @@ struct CellAnalysis {
   /* Info gain (paper's Inf(x)): # OTHER frontier cells that become provably
    * safe or provably mine if this cell is assumed safe. Pure constraint
    * propagation (never reads the hidden number). Populated by
-   * solver_analyze_infogain only at EVAL_GUESS, for non-forced frontier cells in
-   * an exact (non-fallback) component; 0 otherwise. */
+   * solver_analyze_infogain only at EVAL_GUESS, for non-forced frontier cells
+   * in an exact (non-fallback) component; 0 otherwise. */
   int info_gain;
 };
 

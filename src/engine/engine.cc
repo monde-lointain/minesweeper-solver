@@ -1383,8 +1383,8 @@ static int component_infogain(struct SolverScratch* s, int comp, int pin_var) {
  */
 static const double INFOGAIN_BAND = 0.05;
 
-/* Fill info_gain for non-forced frontier cells near the minimum risk in an exact
- * component. Called only at EVAL_GUESS; clobbers only the transient ec/rd
+/* Fill info_gain for non-forced frontier cells near the minimum risk in an
+ * exact component. Called only at EVAL_GUESS; clobbers only the transient ec/rd
  * scratch. */
 static void compute_infogain(const struct Board* b, struct Analysis* out,
                              struct SolverScratch* s) {

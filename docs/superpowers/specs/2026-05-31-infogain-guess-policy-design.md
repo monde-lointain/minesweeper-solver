@@ -70,12 +70,43 @@ revealed `adjacent` counts). The constraint system lives entirely in `SolverScra
 - **Bench (Stream C):** Expert winrate baseline vs infogain vs cheap heuristic, same
   seeds, `deaths@forced-safe == 0`; analyze ns mean/max delta.
 
-## Unresolved questions
+## As-built results (60k Expert, paired seeds, seed 1)
 
-1. `INFOGAIN_BAND` (engine candidate band) and whether to share or split `HEUR_BAND` —
-   start both ~0.02–0.05; tune in measurement.
-2. Should `Inf(x)` extend across components via the global mine budget (second-order),
-   or stay per-component (the paper's Φ-local definition)? Start per-component; revisit
-   only if the gain underwhelms.
-3. Tie-break order (info_gain → cascade → row-major) vs a weighted blend of info_gain
-   and cascade — start lexicographic; blend only if measurement motivates it.
+| policy | winrate (95% Wilson) | vs baseline | analyze mean / max |
+|---|---|---|---|
+| baseline  | 0.3823 [.3784,.3862] | —       | 702µs / 693ms |
+| heuristic | 0.3894 [.3855,.3933] | +0.71pp | 572µs / 571ms |
+| infogain  | **0.3922 [.3883,.3961]** | **+0.99pp** | 705µs / 1.97s |
+
+- infogain vs baseline: **non-overlapping CIs → significant**. vs the cheap heuristic:
+  +0.28pp point estimate, consistent across 20k (0.3921 vs 0.3893) and 60k, but CIs
+  overlap → not separable without paired (McNemar) logging.
+- `deaths@forced-safe == 0` everywhere; Beginner 0.917 / Intermediate 0.809 (healthy).
+- Info-gain guessing does **not** close the gap to the paper's 0.456 — consistent with
+  the residual being the testbed (first-click semantics) and the paper's global-budget
+  pruning, not the per-guess rule.
+
+**Decisive design lesson:** info_gain must *extend* the proven heuristic, not replace
+it. A strict `info_gain` primary with a cascade-only secondary REGRESSED below the
+heuristic (0.3856), because the common no-forcing case (info_gain all 0) dropped the
+connectivity signal. Using the heuristic's connectivity+cascade progress as the
+secondary makes infogain reduce to the heuristic when nothing forces and only add a
+forcing preference on top → ≥ heuristic by construction.
+
+## Resolved questions
+
+1. `INFOGAIN_BAND` = 0.05 engine-side (> the bench `HEUR_BAND` 0.02, so policy-invariant
+   — purely a perf bound; cut analyze max 5.3s → 1.97s). The bench reuses `HEUR_BAND`.
+2. `Inf(x)` stays per-component (the paper's Φ-local definition). The cross-component
+   global-budget extension was not needed — the gain is already marginal.
+3. Tie-break is lexicographic (info_gain → heuristic progress → row-major), NOT a
+   weighted blend; the lexicographic form is what makes infogain dominate the heuristic
+   by construction (see lesson above).
+
+## Open follow-ups
+
+- Paired McNemar (per-seed win/lose logging) to settle infogain vs heuristic (the
+  +0.28pp is consistent but CI-overlapping). Currently the harness emits only aggregate
+  counts.
+- Default policy is still `baseline` (game/overlay behavior unchanged). Promoting
+  infogain (or the cheap heuristic) to default is a product decision left to the user.

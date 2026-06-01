@@ -1,5 +1,22 @@
 # Solver Benchmark — Phase-1 Baseline
 
+> **UPDATE (info-gain guess policy, branch `feat/engine-infogain`).** Added the
+> paper's `Inf(x)` (engine `solver_analyze_infogain` + `--policy infogain`) — see
+> `2026-05-31-infogain-guess-policy-design.md`. Expert, 60k paired seeds:
+>
+> | Policy | Expert winrate | 95% Wilson | vs baseline | analyze mean/max |
+> |---|---|---|---|---|
+> | baseline | 0.3823 | [.3784,.3862] | — | 702µs / 693ms |
+> | heuristic (cheap) | 0.3894 | [.3855,.3933] | +0.71pp | 572µs / 571ms |
+> | **infogain** | **0.3922** | [.3883,.3961] | **+0.99pp** | 705µs / 1.97s |
+>
+> infogain vs baseline is significant (non-overlapping CIs); vs the cheap heuristic
+> it is +0.28pp (consistent at 20k & 60k) but CI-overlapping. `deaths@forced-safe
+> 0`; Beginner 0.917 / Intermediate 0.809 (no regression). Default policy unchanged
+> (`baseline`). Lesson: info_gain must EXTEND the heuristic (lexicographic: info_gain
+> → connectivity+cascade → row-major), not replace it — a cascade-only secondary
+> regressed to 0.3856.
+>
 > **UPDATE (Gaussian-reduction accuracy work, branch `feat/engine-accuracy-gaussian`).**
 > Dense frontier components (`nv>24`) are now solved exactly by Gaussian
 > elimination instead of the naive fallback — see
