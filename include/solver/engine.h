@@ -43,6 +43,10 @@ struct Analysis {
   double interior_prob; /* uniform P(mine) for interior cells (eval line) */
   int interior_count;   /* number of interior cells (0 => none) */
   int eval;             /* enum SolverEval */
+  bool exact;           /* whole-board probabilities are proven exact (no
+                         * component exceeded budget and fell back to the naive
+                         * approximation). true for terminal/start/safe states.
+                         * Populated by solver_analyze. */
 };
 
 /* Per-analysis working memory (~2.5 MB), heap-allocated and opaque. The engine

@@ -1220,6 +1220,7 @@ void solver_analyze(const struct Board* b, struct Analysis* out,
   memset(out, 0, sizeof *out);
   out->best_x = -1;
   out->best_y = -1;
+  out->exact = true; /* default: terminal/start/safe have no estimation */
 
   if (analyze_terminal(b, out)) {
     return;
@@ -1245,6 +1246,16 @@ void solver_analyze(const struct Board* b, struct Analysis* out,
   compute_interior_prob(b, s, &ctx, fallback_expected);
   write_cell_probs(b, out, s, &ctx);
   pick_best_move(b, out, &ctx);
+
+  /* exact iff the DP ran exactly AND no component used the naive fallback. */
+  bool any_fb = false;
+  for (int c = 0; c < ctx.ncomp; ++c) {
+    if (s->res.fallback[c]) {
+      any_fb = true;
+      break;
+    }
+  }
+  out->exact = ctx.exact_ok && !any_fb;
 }
 
 /* ---- info gain (paper's Inf(x)) -------------------------------------------
