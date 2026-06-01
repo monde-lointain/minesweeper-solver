@@ -111,8 +111,6 @@ static inline struct Rat rat_div(struct Rat a, struct Rat b) {
 
 static inline bool rat_is_zero(struct Rat a) { return rat_ok(a) && a.num == 0; }
 
-static inline bool rat_is_int(struct Rat a) { return rat_ok(a) && a.den == 1; }
-
 /* True iff a is exactly the integer v. */
 static inline bool rat_eq_i64(struct Rat a, int64_t v) {
   return rat_ok(a) && a.den == 1 && a.num == v;

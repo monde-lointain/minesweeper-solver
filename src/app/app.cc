@@ -24,6 +24,7 @@
 
 #include "minesweeper/audio.h"
 #include "minesweeper/config.h"
+#include "solver/difficulty.h"
 #include "solver/engine.h"
 #include "solver/overlay.h"
 #include "solver/reasoning.h"
@@ -51,28 +52,12 @@ static void app_reanalyze(struct AppState* s) {
 
 /* ---- difficulty geometry ----------------------------------------------- */
 static void app_dims(const struct Settings* s, int* w, int* h, int* mines) {
-  switch (s->difficulty) {
-    case DIFF_INTERMEDIATE:
-      *w = 16;
-      *h = 16;
-      *mines = 40;
-      break;
-    case DIFF_EXPERT:
-      *w = 30;
-      *h = 16;
-      *mines = 99;
-      break;
-    case DIFF_CUSTOM:
-      *w = s->custom_w;
-      *h = s->custom_h;
-      *mines = s->custom_mines;
-      break;
-    case DIFF_BEGINNER:
-    default:
-      *w = 9;
-      *h = 9;
-      *mines = 10;
-      break;
+  /* Fixed B/I/E presets come from the shared source of truth; only Custom is
+   * app-specific (Settings-provided dimensions). */
+  if (!difficulty_preset_dims(s->difficulty, w, h, mines)) {
+    *w = s->custom_w;
+    *h = s->custom_h;
+    *mines = s->custom_mines;
   }
 }
 

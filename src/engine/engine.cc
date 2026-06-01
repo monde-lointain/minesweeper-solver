@@ -53,12 +53,6 @@ static const int NODE_BUDGET = 5000000;
  * node costs O(rank) rational ops, so a huge budget would be too slow). */
 static const int REDUCED_NODE_BUDGET = 30000;
 
-/* Test-only: force the Gaussian-reduction path even for nv <= CAP_VARS, so the
- * differential test can compare reduced vs direct enumeration on small systems
- * where both are valid. Never set in production. */
-static bool g_force_reduce = false;
-void solver_test_set_force_reduce(bool on) { g_force_reduce = on; }
-
 /* ---- working memory --------------------------------------------------------
  * One per analysis (or per thread). calloc-zeroed on create, which reproduces
  * the original file-scope/BSS semantics: every field is re-initialized before
@@ -174,6 +168,11 @@ struct SolverScratch {
   struct CombineDP dp;
   struct EnumScratch ec;
   struct ReduceScratch rd;
+  /* Test-only: force the Gaussian-reduction path even for nv <= CAP_VARS, so
+   * the differential test can compare reduced vs direct enumeration on small
+   * systems where both are valid. Per-instance (not a global) so the engine
+   * stays reentrant; calloc-zeroed to false, and never set in production. */
+  bool force_reduce;
 };
 
 /* Compact-ragged accessors: per-component views into the flat result arrays. */
@@ -198,6 +197,10 @@ void solver_scratch_destroy(struct SolverScratch* s) {
   if (s != NULL) {
     free(s);
   }
+}
+
+void solver_test_set_force_reduce(struct SolverScratch* s, bool on) {
+  s->force_reduce = on;
 }
 
 /* ---- helpers --------------------------------------------------------------
@@ -689,22 +692,38 @@ static bool enumerate_reduced(struct SolverScratch* s) {
   return !s->ec.overflow;
 }
 
-/* Build the local model for component `comp` (vars + local indices precomputed
- * by layout_components) and enumerate it directly. Returns false on fallback
- * (over the direct cap / node budget / infeasible), true on exact success (and
- * then reserves this component's compact shat/mhat slots, advancing the running
- * offsets). The Gaussian-reduction path for CAP_VARS < nv <= MAX_COMP_VARS is
- * added in sub-step 2. */
-static bool enumerate_component(struct SolverScratch* s, int comp,
-                                int* shat_used, int* mhat_used) {
-  int nv = s->res.nv[comp];
-  if (nv > MAX_COMP_VARS) {
-    return false; /* too big to store exactly: fallback */
+/* Build the ec local constraint model for component `comp` (vars + local
+ * indices precomputed by layout_components). If pin_var >= 0 that var is
+ * excluded (pinned safe, contributing no mine) — the info-gain re-solve. Writes
+ * the ec-local -> component-local map into ec2orig[0..m) when ec2orig != NULL;
+ * zeroes ec.sol / ec.mine and inits con_sum / con_un. Touches ONLY ec scratch
+ * (never s->res / s->cm / s->comp), so an info-gain re-solve leaves the stored
+ * marginals intact. Returns m (#ec vars; == res.nv[comp] when pin_var < 0), 0
+ * if the pin removes the only var, or -1 if pinning makes a constraint
+ * infeasible. */
+static int build_local_model(struct SolverScratch* s, int comp, int pin_var,
+                             int* ec2orig) {
+  int nv_full = s->res.nv[comp];
+  int pin_local = (pin_var >= 0) ? s->comp.local_of_var[pin_var] : -1;
+  int ec_of_orig[MAX_COMP_VARS]; /* original local -> ec local (-1 for pin) */
+  int m = 0;
+  for (int ol = 0; ol < nv_full; ++ol) {
+    if (ol == pin_local) {
+      ec_of_orig[ol] = -1;
+      continue;
+    }
+    ec_of_orig[ol] = m;
+    if (ec2orig != NULL) {
+      ec2orig[m] = ol;
+    }
+    ++m;
   }
-  s->ec.nv = nv;
-  /* gather local constraints */
+  if (m == 0) {
+    return 0; /* pin removed the component's only var */
+  }
+  s->ec.nv = m;
   s->ec.ncon = 0;
-  for (int lv = 0; lv < nv; ++lv) {
+  for (int lv = 0; lv < m; ++lv) {
     s->ec.varcon_n[lv] = 0;
   }
   for (int ci = 0; ci < s->cm.ncon; ++ci) {
@@ -726,22 +745,33 @@ static bool enumerate_component(struct SolverScratch* s, int comp,
       if (s->cm.vstate[v] == VAR_MINE) {
         ++fixed_mines;
       } else if (s->cm.vstate[v] == VAR_UNKNOWN) {
-        int lv = s->comp.local_of_var[v];
+        int lv = ec_of_orig[s->comp.local_of_var[v]];
+        if (lv < 0) {
+          continue; /* pinned-safe candidate: no mine, not a var */
+        }
         s->ec.con_lv[s->ec.ncon][nlv] = lv;
         s->ec.varcon[lv][s->ec.varcon_n[lv]++] = s->ec.ncon;
         ++nlv;
       }
     }
+    int need = s->cm.con_need[ci] - fixed_mines; /* pin (=0) adds no mines */
+    if (nlv == 0) {
+      /* Unreachable when pin_var < 0 (first_unknown is always counted), so this
+       * is byte-identical to the old enumerate_component for that path. */
+      if (need != 0) {
+        return -1; /* pinning the candidate safe is infeasible here */
+      }
+      continue; /* redundant 0 = 0 row */
+    }
     s->ec.con_nlv[s->ec.ncon] = nlv;
-    s->ec.con_need[s->ec.ncon] = s->cm.con_need[ci] - fixed_mines;
+    s->ec.con_need[s->ec.ncon] = need;
     ++s->ec.ncon;
   }
-  /* init enumeration state */
-  for (int k = 0; k <= nv; ++k) {
+  for (int k = 0; k <= m; ++k) {
     s->ec.sol[k] = 0.0L;
   }
-  for (int lv = 0; lv < nv; ++lv) {
-    for (int k = 0; k <= nv; ++k) {
+  for (int lv = 0; lv < m; ++lv) {
+    for (int k = 0; k <= m; ++k) {
       s->ec.mine[lv][k] = 0.0L;
     }
   }
@@ -749,26 +779,52 @@ static bool enumerate_component(struct SolverScratch* s, int comp,
     s->ec.con_sum[cj] = 0;
     s->ec.con_un[cj] = s->ec.con_nlv[cj];
   }
-  if (nv > CAP_VARS || g_force_reduce) {
-    if (!enumerate_reduced(s)) { /* Gaussian reduction + free-var DFS */
-      return false;
+  return m;
+}
+
+/* Enumerate the prepared ec model (m vars) directly or via Gaussian reduction.
+ * allow_force lets the test-only force_reduce flag drive the reduced path on
+ * small systems (production-inert). Returns the total solution count, or 0 on
+ * overflow / infeasible (the caller treats <= 0 as a fallback). */
+static long double enumerate_local(struct SolverScratch* s, int m,
+                                   bool allow_force) {
+  if (m > CAP_VARS || (allow_force && s->force_reduce)) {
+    if (!enumerate_reduced(s)) { /* resets nodes/overflow itself */
+      return 0.0L;
     }
   } else {
     s->ec.nodes = 0;
     s->ec.overflow = false;
-    enum_dfs(s, 0, 0); /* direct: branch all vars (unchanged path) */
+    enum_dfs(s, 0, 0); /* direct: branch all vars */
     if (s->ec.overflow) {
-      return false;
+      return 0.0L;
     }
   }
-  /* normalize into compact comp tables */
   long double total = 0.0L;
-  for (int k = 0; k <= nv; ++k) {
+  for (int k = 0; k <= m; ++k) {
     total += s->ec.sol[k];
   }
-  if (total <= 0.0L) {
-    return false; /* infeasible component (shouldn't happen): fallback */
+  return total;
+}
+
+/* Build the local model for component `comp` and enumerate it exactly. Returns
+ * false on fallback (over the direct cap / node budget / infeasible), true on
+ * exact success (and then reserves this component's compact shat/mhat slots,
+ * advancing the running offsets). */
+static bool enumerate_component(struct SolverScratch* s, int comp,
+                                int* shat_used, int* mhat_used) {
+  int nv = s->res.nv[comp];
+  if (nv > MAX_COMP_VARS) {
+    return false; /* too big to store exactly: fallback */
   }
+  if (build_local_model(s, comp, -1, NULL) != nv) {
+    return false; /* infeasible (cannot happen with no pin): fallback */
+  }
+  long double total = enumerate_local(s, nv, true);
+  if (total <= 0.0L) {
+    return false; /* node-budget overflow or infeasible: fallback */
+  }
+  /* normalize into compact comp tables */
   s->res.fallback[comp] = false;
   s->res.shat_off[comp] = *shat_used;
   *shat_used += nv + 1;
@@ -1274,94 +1330,17 @@ void solver_analyze(const struct Board* b, struct Analysis* out,
  * a degenerate component. */
 static int component_infogain(struct SolverScratch* s, int comp, int pin_var) {
   int nv_full = s->res.nv[comp];
-  int pin_local = s->comp.local_of_var[pin_var];
-  int ec_of_orig[MAX_COMP_VARS]; /* original local -> ec local (-1 for pin) */
-  int ec2orig[MAX_COMP_VARS];    /* ec local -> original local */
-  int m = 0;
-  for (int ol = 0; ol < nv_full; ++ol) {
-    if (ol == pin_local) {
-      ec_of_orig[ol] = -1;
-      continue;
-    }
-    ec_of_orig[ol] = m;
-    ec2orig[m] = ol;
-    ++m;
+  int ec2orig[MAX_COMP_VARS]; /* ec local -> original local */
+  /* Re-build the component's local model with the candidate pinned safe.
+   * allow_force=true keeps the reduced path differentially testable; it is
+   * production-inert (force_reduce is always false in production). */
+  int m = build_local_model(s, comp, pin_var, ec2orig);
+  if (m <= 0) {
+    return 0; /* pin removed the only var (m==0) or is infeasible (m<0) */
   }
-  if (m == 0) {
-    return 0;
-  }
-  /* Build the local model over the component's unknown vars, excluding pin. */
-  s->ec.nv = m;
-  s->ec.ncon = 0;
-  for (int lv = 0; lv < m; ++lv) {
-    s->ec.varcon_n[lv] = 0;
-  }
-  for (int ci = 0; ci < s->cm.ncon; ++ci) {
-    int first_unknown = -1;
-    for (int j = 0; j < s->cm.con_nv[ci]; ++j) {
-      int v = s->cm.con_var[ci][j];
-      if (s->cm.vstate[v] == VAR_UNKNOWN) {
-        first_unknown = v;
-        break;
-      }
-    }
-    if (first_unknown < 0 || s->comp.of_var[first_unknown] != comp) {
-      continue;
-    }
-    int fixed_mines = 0;
-    int nlv = 0;
-    for (int j = 0; j < s->cm.con_nv[ci]; ++j) {
-      int v = s->cm.con_var[ci][j];
-      if (s->cm.vstate[v] == VAR_MINE) {
-        ++fixed_mines;
-      } else if (s->cm.vstate[v] == VAR_UNKNOWN && v != pin_var) {
-        int lv = ec_of_orig[s->comp.local_of_var[v]];
-        s->ec.con_lv[s->ec.ncon][nlv] = lv;
-        s->ec.varcon[lv][s->ec.varcon_n[lv]++] = s->ec.ncon;
-        ++nlv;
-      }
-    }
-    int need = s->cm.con_need[ci] - fixed_mines; /* pin (=0) adds no mines */
-    if (nlv == 0) {
-      if (need != 0) {
-        return 0; /* pinning the candidate safe is infeasible here */
-      }
-      continue; /* redundant 0 = 0 row */
-    }
-    s->ec.con_nlv[s->ec.ncon] = nlv;
-    s->ec.con_need[s->ec.ncon] = need;
-    ++s->ec.ncon;
-  }
-  for (int k = 0; k <= m; ++k) {
-    s->ec.sol[k] = 0.0L;
-  }
-  for (int lv = 0; lv < m; ++lv) {
-    for (int k = 0; k <= m; ++k) {
-      s->ec.mine[lv][k] = 0.0L;
-    }
-  }
-  for (int cj = 0; cj < s->ec.ncon; ++cj) {
-    s->ec.con_sum[cj] = 0;
-    s->ec.con_un[cj] = s->ec.con_nlv[cj];
-  }
-  if (m > CAP_VARS) {
-    if (!enumerate_reduced(s)) {
-      return 0;
-    }
-  } else {
-    s->ec.nodes = 0;
-    s->ec.overflow = false;
-    enum_dfs(s, 0, 0);
-    if (s->ec.overflow) {
-      return 0;
-    }
-  }
-  long double total = 0.0L;
-  for (int k = 0; k <= m; ++k) {
-    total += s->ec.sol[k];
-  }
+  long double total = enumerate_local(s, m, true);
   if (total <= 0.0L) {
-    return 0;
+    return 0; /* node-budget overflow or infeasible */
   }
   int gain = 0;
   for (int lv = 0; lv < m; ++lv) {

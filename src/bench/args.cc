@@ -8,7 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "minesweeper/types.h" /* BOARD_MIN_W .. BOARD_MAX_H */
+#include "minesweeper/types.h" /* BOARD_MIN_W .. BOARD_MAX_H, enum Difficulty */
+#include "solver/difficulty.h"
 
 static int parse_u64(const char* s, uint64_t* out) {
   char* end = NULL;
@@ -33,28 +34,21 @@ static int parse_long(const char* s, long* out) {
 }
 
 static int set_preset(struct BenchConfig* cfg, const char* name) {
+  int diff;
   if (strcmp(name, "beginner") == 0) {
-    cfg->width = 9;
-    cfg->height = 9;
-    cfg->mines = 10;
-    strcpy(cfg->label, "beginner");
-    return 0;
+    diff = DIFF_BEGINNER;
+  } else if (strcmp(name, "intermediate") == 0) {
+    diff = DIFF_INTERMEDIATE;
+  } else if (strcmp(name, "expert") == 0) {
+    diff = DIFF_EXPERT;
+  } else {
+    return -1;
   }
-  if (strcmp(name, "intermediate") == 0) {
-    cfg->width = 16;
-    cfg->height = 16;
-    cfg->mines = 40;
-    strcpy(cfg->label, "intermediate");
-    return 0;
-  }
-  if (strcmp(name, "expert") == 0) {
-    cfg->width = 30;
-    cfg->height = 16;
-    cfg->mines = 99;
-    strcpy(cfg->label, "expert");
-    return 0;
-  }
-  return -1;
+  /* Dimensions + label from the shared source of truth (same as the GUI app).
+   */
+  difficulty_preset_dims(diff, &cfg->width, &cfg->height, &cfg->mines);
+  strcpy(cfg->label, difficulty_preset_name(diff));
+  return 0;
 }
 
 static int clampi(int v, int lo, int hi) {

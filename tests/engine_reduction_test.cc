@@ -98,11 +98,11 @@ TEST(EngineReduction, DifferentialVsDirect) {
       Board b;
       build(30, 16, mines, seed * 7u + (uint32_t)dens, pct, &b);
 
-      solver_test_set_force_reduce(false);
+      solver_test_set_force_reduce(sc, false);
       solver_analyze(&b, a1, sc);
-      solver_test_set_force_reduce(true);
+      solver_test_set_force_reduce(sc, true);
       solver_analyze(&b, a2, sc);
-      solver_test_set_force_reduce(false);
+      solver_test_set_force_reduce(sc, false);
 
       ASSERT_EQ(a1->eval, a2->eval) << "seed " << seed << " dens " << dens;
       for (int i = 0; i < b.width * b.height; ++i) {

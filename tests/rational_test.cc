@@ -79,14 +79,11 @@ TEST(Rational, ExactArithmeticIdentities) {
   EXPECT_EQ(q.den, 3);
 
   struct Rat whole = rat_add(make(1, 2), make(1, 2)); /* 1 */
-  EXPECT_TRUE(rat_is_int(whole));
   EXPECT_TRUE(rat_eq_i64(whole, 1));
 }
 
 TEST(Rational, IntegerPredicates) {
-  EXPECT_TRUE(rat_is_int(rat_from_i64(7)));
   EXPECT_TRUE(rat_eq_i64(rat_from_i64(7), 7));
-  EXPECT_FALSE(rat_is_int(make(3, 2)));
   EXPECT_FALSE(rat_eq_i64(make(3, 2), 1));
   EXPECT_FALSE(rat_eq_i64(make(3, 2), 2));
 }

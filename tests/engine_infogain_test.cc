@@ -11,12 +11,76 @@
  * reference.
  */
 #include <gtest/gtest.h>
+#include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
+#include "engine_internal.h"
 #include "minesweeper/game.h"
 #include "solver/engine.h"
 
 namespace {
+
+/* ---- dense-board corpus (for the reduced-path differential below) ---------
+ * Mirrors engine_reduction_test's generator: place mines, reveal each non-mine
+ * with reveal_pct%, self-consistent adjacents. Low reveal_pct stresses dense
+ * frontier components (which straddle CAP_VARS and exercise the reduction). */
+enum { DENSE_GMAX = 30 * 16 };
+
+uint32_t dense_next(uint32_t* s) {
+  *s = *s * 1103515245u + 12345u;
+  return *s;
+}
+
+int dense_adjacent(const unsigned char* mine, int w, int h, int x, int y) {
+  int n = 0;
+  for (int dy = -1; dy <= 1; ++dy) {
+    for (int dx = -1; dx <= 1; ++dx) {
+      if (dx == 0 && dy == 0) continue;
+      int nx = x + dx;
+      int ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      if (mine[ny * w + nx]) ++n;
+    }
+  }
+  return n;
+}
+
+void build_dense(int w, int h, int mines, uint32_t seed, int reveal_pct,
+                 struct Board* b) {
+  memset(b, 0, sizeof *b);
+  b->width = w;
+  b->height = h;
+  b->status = GAME_PLAYING;
+  b->mines_placed = true;
+  int ncell = w * h;
+  unsigned char mine[DENSE_GMAX];
+  memset(mine, 0, sizeof mine);
+  uint32_t s = seed;
+  int placed = 0;
+  while (placed < mines) {
+    int p = (int)((dense_next(&s) >> 8) % (uint32_t)ncell);
+    if (!mine[p]) {
+      mine[p] = 1;
+      ++placed;
+    }
+  }
+  int revealed = 0;
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      int i = y * w + x;
+      b->cells[i].mine = mine[i] != 0;
+      if (mine[i]) continue;
+      if ((int)((dense_next(&s) >> 8) % 100u) < reveal_pct) {
+        b->cells[i].revealed = true;
+        b->cells[i].adjacent = (uint8_t)dense_adjacent(mine, w, h, x, y);
+        ++revealed;
+      }
+    }
+  }
+  b->mines = mines;
+  b->revealed_count = revealed;
+}
 
 /* Build a board from ASCII rows: '*' = mine (covered), '#' = safe covered,
  * '.' = safe revealed. Adjacent counts are derived from the mine layout. */
@@ -268,4 +332,43 @@ TEST(EngineInfogain, Deterministic) {
   for (int i = 0; i < f.b.width * f.b.height; ++i) {
     EXPECT_EQ(f.a.cells[i].info_gain, a2.cells[i].info_gain) << "cell " << i;
   }
+}
+
+/* Differential guard for component_infogain's REDUCED path. The ASCII fixtures
+ * above only reach the direct path (tiny components); this drives the
+ * Gaussian-reduction path on a dense corpus via the force-reduce hook and
+ * asserts info_gain is byte-identical to the trusted direct enumeration.
+ * Chained with the brute-force-oracle tests (direct == oracle on small boards),
+ * this proves reduced == direct == oracle for Inf(x). Must hold before AND
+ * after the build_local_model/enumerate_local extraction. */
+TEST(EngineInfogain, DifferentialReducedVsDirect) {
+  SolverScratch* sc = solver_scratch_create();
+  Analysis* a1 = (Analysis*)malloc(sizeof *a1);
+  Analysis* a2 = (Analysis*)malloc(sizeof *a2);
+  int guess_boards = 0;
+  for (uint32_t seed = 1; seed <= 80; ++seed) {
+    for (int dens = 0; dens < 3; ++dens) {
+      int mines = dens == 0 ? 30 : (dens == 1 ? 60 : 99);
+      int pct = dens == 0 ? 65 : (dens == 1 ? 55 : 50);
+      Board b;
+      build_dense(30, 16, mines, seed * 7u + (uint32_t)dens, pct, &b);
+
+      solver_test_set_force_reduce(sc, false); /* direct (trusted) */
+      solver_analyze_infogain(&b, a1, sc);
+      solver_test_set_force_reduce(sc, true); /* reduced (under test) */
+      solver_analyze_infogain(&b, a2, sc);
+      solver_test_set_force_reduce(sc, false);
+
+      ASSERT_EQ(a1->eval, a2->eval) << "seed " << seed << " dens " << dens;
+      for (int i = 0; i < b.width * b.height; ++i) {
+        ASSERT_EQ(a1->cells[i].info_gain, a2->cells[i].info_gain)
+            << "seed " << seed << " dens " << dens << " cell " << i;
+      }
+      if (a1->eval == EVAL_GUESS) ++guess_boards;
+    }
+  }
+  EXPECT_GT(guess_boards, 0); /* corpus must actually exercise guessing */
+  free(a1);
+  free(a2);
+  solver_scratch_destroy(sc);
 }

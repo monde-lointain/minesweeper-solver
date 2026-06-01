@@ -108,7 +108,8 @@ TEST(Reasoning, NotRiskierWhenPickIsSafest) {
 
 TEST(Reasoning, StartMoveIsZeroRisk) {
   /* At EVAL_START the engine's mine_prob is the uniform density, but the first
-   * click is guaranteed safe — the readout must show 0% risk, not the density. */
+   * click is guaranteed safe — the readout must show 0% risk, not the density.
+   */
   struct Board b;
   mkboard(&b, 9, 9);
   struct Analysis a;

@@ -29,9 +29,13 @@ target_include_directories(engine_reduction_test
   PRIVATE ${PROJECT_SOURCE_DIR}/src/engine)
 gtest_discover_tests(engine_reduction_test)
 
-# Info-gain (paper's Inf(x)) vs an independent brute-force reference.
+# Info-gain (paper's Inf(x)) vs an independent brute-force reference. Reaches into
+# src/engine for engine_internal.h (the force-reduce hook) to differentially test
+# the reduced info-gain path the small ASCII oracle never reaches.
 add_executable(engine_infogain_test engine_infogain_test.cc)
 target_link_libraries(engine_infogain_test PRIVATE solver_lib gtest_main)
+target_include_directories(engine_infogain_test
+  PRIVATE ${PROJECT_SOURCE_DIR}/src/engine)
 gtest_discover_tests(engine_infogain_test)
 
 # Shared move recommendation (the bench policy and the GUI overlay both call it).
