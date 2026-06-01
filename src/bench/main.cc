@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
     printf("running %s: %llux  seed=%u  threads=%s  policy=%s ...\n", cfg.label,
            (unsigned long long)cfg.games, cfg.seed,
            (cfg.threads <= 0) ? "auto" : "fixed",
-           (cfg.policy_id == POLICY_HEURISTIC) ? "heuristic" : "baseline");
+           (cfg.policy_id == POLICY_BASELINE) ? "baseline" : "infogain");
     fflush(stdout);
   }
 

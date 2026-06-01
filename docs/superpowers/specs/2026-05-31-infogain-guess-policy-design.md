@@ -103,10 +103,18 @@ forcing preference on top → ≥ heuristic by construction.
    weighted blend; the lexicographic form is what makes infogain dominate the heuristic
    by construction (see lesson above).
 
+## Final disposition
+
+- **infogain is the default policy.** The cheap heuristic (`POLICY_HEURISTIC`,
+  `policy_heuristic.{h,cc}`, its test) was **deleted** — it is strictly dominated by
+  infogain (which reduces to it when nothing forces). `POLICY_BASELINE` is **kept** as
+  the engine-accuracy reference (isolates the engine's raw min-prob pick; needed to
+  measure future engine changes without policy confound). CLI: `--policy infogain|
+  baseline` (default infogain). The overlay/game is unaffected (policy is bench-only).
+
 ## Open follow-ups
 
-- Paired McNemar (per-seed win/lose logging) to settle infogain vs heuristic (the
-  +0.28pp is consistent but CI-overlapping). Currently the harness emits only aggregate
+- Paired McNemar (per-seed win/lose logging) to confirm infogain > baseline beyond the
+  already-significant aggregate CIs, and to quantify the lost +0.28pp signal vs the
+  deleted heuristic if ever revisited. The harness currently emits only aggregate
   counts.
-- Default policy is still `baseline` (game/overlay behavior unchanged). Promoting
-  infogain (or the cheap heuristic) to default is a product decision left to the user.

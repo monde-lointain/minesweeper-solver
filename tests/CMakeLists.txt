@@ -41,10 +41,6 @@ add_executable(bench_policy_test bench_policy_test.cc)
 target_link_libraries(bench_policy_test PRIVATE bench_lib gtest_main)
 gtest_discover_tests(bench_policy_test)
 
-add_executable(bench_policy_heuristic_test bench_policy_heuristic_test.cc)
-target_link_libraries(bench_policy_heuristic_test PRIVATE bench_lib gtest_main)
-gtest_discover_tests(bench_policy_heuristic_test)
-
 add_executable(bench_policy_infogain_test bench_policy_infogain_test.cc)
 target_link_libraries(bench_policy_infogain_test PRIVATE bench_lib gtest_main)
 gtest_discover_tests(bench_policy_infogain_test)

@@ -16,7 +16,7 @@ TEST(BenchCli, Defaults) {
   EXPECT_EQ(c.games, 1000000u);
   EXPECT_EQ(c.seed, 1u);
   EXPECT_EQ(c.threads, 0);
-  EXPECT_EQ(c.policy_id, POLICY_BASELINE);
+  EXPECT_EQ(c.policy_id, POLICY_INFOGAIN);
   EXPECT_STREQ(c.label, "expert");
 }
 

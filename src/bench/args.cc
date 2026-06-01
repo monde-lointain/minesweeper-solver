@@ -73,7 +73,7 @@ int bench_parse_args(int argc, char** argv, struct BenchConfig* cfg,
   cfg->games = 1000000;
   cfg->seed = 1;
   cfg->threads = 0;
-  cfg->policy_id = POLICY_BASELINE;
+  cfg->policy_id = POLICY_INFOGAIN;
   cfg->quiet = false;
   *errmsg = NULL;
 
@@ -102,14 +102,12 @@ int bench_parse_args(int argc, char** argv, struct BenchConfig* cfg,
         return -1;
       }
     } else if (strcmp(s, "--policy") == 0) {
-      if (strcmp(val, "baseline") == 0) {
-        cfg->policy_id = POLICY_BASELINE;
-      } else if (strcmp(val, "heuristic") == 0) {
-        cfg->policy_id = POLICY_HEURISTIC;
-      } else if (strcmp(val, "infogain") == 0) {
+      if (strcmp(val, "infogain") == 0) {
         cfg->policy_id = POLICY_INFOGAIN;
+      } else if (strcmp(val, "baseline") == 0) {
+        cfg->policy_id = POLICY_BASELINE;
       } else {
-        *errmsg = "unknown policy (baseline|heuristic|infogain)";
+        *errmsg = "unknown policy (infogain|baseline)";
         return -1;
       }
     } else if (strcmp(s, "--games") == 0) {
@@ -186,7 +184,7 @@ void bench_usage(const char* prog) {
       "  --games N        number of games            (default: 1000000)\n"
       "  --seed S         base RNG seed; game i uses seed+i   (default: 1)\n"
       "  --threads T      worker threads, 0=auto      (default: 0)\n"
-      "  --policy baseline|heuristic|infogain         (default: baseline)\n"
+      "  --policy infogain|baseline                   (default: infogain)\n"
       "  --quiet          suppress the pre-run line\n"
       "  -h, --help       this message\n",
       prog);

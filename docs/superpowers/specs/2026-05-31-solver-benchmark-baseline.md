@@ -12,10 +12,13 @@
 >
 > infogain vs baseline is significant (non-overlapping CIs); vs the cheap heuristic
 > it is +0.28pp (consistent at 20k & 60k) but CI-overlapping. `deaths@forced-safe
-> 0`; Beginner 0.917 / Intermediate 0.809 (no regression). Default policy unchanged
-> (`baseline`). Lesson: info_gain must EXTEND the heuristic (lexicographic: info_gain
-> → connectivity+cascade → row-major), not replace it — a cascade-only secondary
-> regressed to 0.3856.
+> 0`; Beginner 0.917 / Intermediate 0.809 (no regression). Lesson: info_gain must
+> EXTEND the heuristic (lexicographic: info_gain → connectivity+cascade → row-major),
+> not replace it — a cascade-only secondary regressed to 0.3856.
+>
+> **infogain is now the default policy**; the cheap heuristic was deleted (dominated
+> by infogain). `POLICY_BASELINE` kept as the engine-accuracy reference. CLI:
+> `--policy infogain|baseline` (default infogain).
 >
 > **UPDATE (Gaussian-reduction accuracy work, branch `feat/engine-accuracy-gaussian`).**
 > Dense frontier components (`nv>24`) are now solved exactly by Gaussian

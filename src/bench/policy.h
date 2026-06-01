@@ -20,10 +20,9 @@ struct Move {
 };
 
 enum PolicyId {
-  POLICY_BASELINE = 0,  /* engine min-prob pick (today's behavior) */
-  POLICY_HEURISTIC = 1, /* min-prob + progress-aware tie-break (paper-validated) */
-  POLICY_INFOGAIN = 2,  /* min-prob + info-gain tie-break (paper's Inf(x)) */
-  POLICY_COUNT = 3
+  POLICY_INFOGAIN = 0,  /* min-prob + info-gain tie-break (paper's Inf(x)); default */
+  POLICY_BASELINE = 1,  /* engine min-prob pick — the engine-accuracy reference */
+  POLICY_COUNT = 2
 };
 
 /* True if the policy needs the engine's info_gain field populated (so the runner
