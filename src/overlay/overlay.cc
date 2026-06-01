@@ -41,4 +41,33 @@ void overlay_draw(const struct Analysis* a, const struct Board* b,
   ImVec2 p1((float)((r.x + r.w) - 1), (float)((r.y + r.h) - 1));
   float thickness = (float)lay->scale + 1.0f;
   dl->AddRect(p0, p1, IM_COL32(21, 101, 192, 255), 0.0f, 0, thickness);
+
+  /* Proven-cell markers: certainties (not a risk gradient), so they explain the
+   * pick rather than competing with it. Geometry only -> scales 1x-4x. Green =
+   * forced_safe, red = forced_mine. */
+  int n = b->width * b->height;
+  float radius = (float)cell / 6.0f;
+  if (radius < 2.0f) {
+    radius = 2.0f;
+  }
+  for (int i = 0; i < n; ++i) {
+    if (b->cells[i].revealed) {
+      continue;
+    }
+    bool safe = a->cells[i].forced_safe;
+    bool mine = a->cells[i].forced_mine;
+    if (!safe && !mine) {
+      continue;
+    }
+    int mcx = i % b->width;
+    int mcy = i / b->width;
+    struct OverlayRect cr =
+        overlay_cell_rect(lay->grid_x, lay->grid_y, cell, mcx, mcy);
+    ImVec2 center((float)cr.x + (float)cr.w * 0.5f,
+                  (float)cr.y + (float)cr.h * 0.5f);
+    ImU32 fill = safe ? IM_COL32(46, 158, 46, 235) : IM_COL32(204, 43, 43, 235);
+    dl->AddCircleFilled(center, radius, fill, 16);
+    dl->AddCircle(center, radius, IM_COL32(255, 255, 255, 180), 16,
+                  (float)lay->scale);
+  }
 }
