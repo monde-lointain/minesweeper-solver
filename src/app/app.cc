@@ -86,8 +86,8 @@ static void app_new_game(struct AppState* s) {
   struct Rng rng = {solver_rng, &s->rng_state, 0}; /* (1) */
   game_reset(&s->board, w, h, mines, &rng);
   s->button_face = BTN_HAPPY;
-  s->press_x = -1;
-  s->press_y = -1;
+  s->press.x = -1;
+  s->press.y = -1;
   s->pressing_board = false;
   s->pressing_face = false;
   s->chord_active = false;
@@ -241,8 +241,8 @@ SDL_AppResult app_init(struct AppState** out, int argc, char** argv) {
     ImGui::SetCurrentContext((ImGuiContext*)s->ctx_game);
     s->panel_on = true;
   }
-  s->hover_x = -1;
-  s->hover_y = -1;
+  s->hover.x = -1;
+  s->hover.y = -1;
 
   s->pending_name_level = -1;
   s->overlay_on = true; /* (5) overlay starts on */
@@ -281,11 +281,11 @@ static void app_press_update(struct AppState* s, float px, float py) {
   int cy = 0;
   app_compute_layout(s, &lay);
   if (render_cell_at(&s->board, &lay, px, py, &cx, &cy)) {
-    s->press_x = cx;
-    s->press_y = cy;
+    s->press.x = cx;
+    s->press.y = cy;
   } else {
-    s->press_x = -1;
-    s->press_y = -1;
+    s->press.x = -1;
+    s->press.y = -1;
   }
 }
 
@@ -317,8 +317,8 @@ static void app_mouse_down(struct AppState* s, const SDL_Event* e) {
       e->button.button == SDL_BUTTON_MIDDLE) {
     s->chord_active = true;
     if (on_cell) {
-      s->press_x = cx;
-      s->press_y = cy;
+      s->press.x = cx;
+      s->press.y = cy;
     }
     s->button_face = BTN_CAUTION;
     return;
@@ -326,8 +326,8 @@ static void app_mouse_down(struct AppState* s, const SDL_Event* e) {
 
   if (e->button.button == SDL_BUTTON_LEFT && on_cell) {
     s->pressing_board = true;
-    s->press_x = cx;
-    s->press_y = cy;
+    s->press.x = cx;
+    s->press.y = cy;
     s->button_face = BTN_CAUTION;
   } else if (e->button.button == SDL_BUTTON_RIGHT && on_cell) {
     game_cycle_flag(&s->board, cx, cy, s->settings.marks);
@@ -363,8 +363,8 @@ static void app_mouse_up(struct AppState* s, const SDL_Event* e) {
     }
     s->chord_active = false;
     s->chorded = true;
-    s->press_x = -1;
-    s->press_y = -1;
+    s->press.x = -1;
+    s->press.y = -1;
   } else if (e->button.button == SDL_BUTTON_LEFT && s->pressing_board) {
     if (on_cell && app_playable(s) && !s->chorded) {
       result = game_reveal(&s->board, cx, cy);
@@ -372,8 +372,8 @@ static void app_mouse_up(struct AppState* s, const SDL_Event* e) {
       app_after_action(s, result);
     }
     s->pressing_board = false;
-    s->press_x = -1;
-    s->press_y = -1;
+    s->press.x = -1;
+    s->press.y = -1;
   }
 
   if (e->button.button == SDL_BUTTON_LEFT) {
@@ -507,17 +507,17 @@ SDL_AppResult app_event(struct AppState* s, SDL_Event* event) {
       app_compute_layout(s, &lay);
       if (render_cell_at(&s->board, &lay, event->motion.x, event->motion.y, &cx,
                          &cy)) {
-        s->hover_x = cx;
-        s->hover_y = cy;
+        s->hover.x = cx;
+        s->hover.y = cy;
       } else {
-        s->hover_x = -1;
-        s->hover_y = -1;
+        s->hover.x = -1;
+        s->hover.y = -1;
       }
       break;
     }
     case SDL_EVENT_WINDOW_MOUSE_LEAVE:
-      s->hover_x = -1;
-      s->hover_y = -1;
+      s->hover.x = -1;
+      s->hover.y = -1;
       break;
     default:
       break;
@@ -646,8 +646,8 @@ SDL_AppResult app_iterate(struct AppState* s) {
   SDL_RenderClear(s->renderer);
   struct FrameView view;
   view.button_face = s->button_face;
-  view.press_x = s->press_x;
-  view.press_y = s->press_y;
+  view.press_x = s->press.x;
+  view.press_y = s->press.y;
   view.elapsed_sec = s->elapsed_sec;
   render_frame(s->renderer, &s->assets, &s->board, &lay, &view);
   if (s->overlay_on) {
@@ -660,7 +660,7 @@ SDL_AppResult app_iterate(struct AppState* s) {
   /* Companion reasoning window: separate context, separate renderer. */
   if (s->panel_on && s->panel_window != NULL && s->ctx_panel != NULL) {
     struct ReasoningView rv;
-    reasoning_build(&s->board, &s->analysis, s->hover_x, s->hover_y, &rv);
+    reasoning_build(&s->board, &s->analysis, s->hover, &rv);
 
     ImGui::SetCurrentContext((ImGuiContext*)s->ctx_panel);
     ImGui_ImplSDLRenderer3_NewFrame();

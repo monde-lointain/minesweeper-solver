@@ -1,4 +1,4 @@
-/* overlay_geom.h — pure overlay geometry helper. FROZEN CONTRACT (Stream A.0).
+/* overlay_geom.h — pure overlay geometry helper (Stream A.0).
  *
  * NO SDL/ImGui — cell-rect geometry only, so it can be unit-tested without a
  * window. Orthodox C++: POD returned by value, pointers.

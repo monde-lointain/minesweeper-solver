@@ -124,8 +124,8 @@ void build(const Spec& sp, Board* b) {
 void measure(const Board* b, const Analysis* a, Stats* st) {
   memset(st, 0, sizeof *st);
   st->eval = a->eval;
-  st->best_x = a->best_x;
-  st->best_y = a->best_y;
+  st->best_x = a->best.x;
+  st->best_y = a->best.y;
   st->interior_count = a->interior_count;
   st->best_prob = a->best_prob;
   st->interior_prob = a->interior_prob;

@@ -13,7 +13,7 @@ static int reasoning_pct(double p) {
 }
 
 void reasoning_build(const struct Board* b, const struct Analysis* a,
-                     int hover_x, int hover_y, struct ReasoningView* out) {
+                     struct Pt hover, struct ReasoningView* out) {
   memset(out, 0, sizeof *out);
   out->verdict = a->eval;
   out->exact = a->exact;
@@ -37,13 +37,11 @@ void reasoning_build(const struct Board* b, const struct Analysis* a,
     }
   }
 
-  int rx = -1;
-  int ry = -1;
-  if (solver_recommend_move(b, a, &rx, &ry) == 0) {
-    int idx = game_index(b, rx, ry);
+  struct Pt rec;
+  if (solver_recommend_move(b, a, &rec) == 0) {
+    int idx = game_index(b, rec.x, rec.y);
     out->has_move = true;
-    out->move_x = rx;
-    out->move_y = ry;
+    out->move = rec;
     out->risk_pct = reasoning_pct(a->cells[idx].mine_prob);
     /* The first click is guaranteed safe (single-cell first-click safety), so
      * the opening move's true risk is 0 — not the uniform board density that
@@ -58,13 +56,12 @@ void reasoning_build(const struct Board* b, const struct Analysis* a,
     out->took_riskier = (a->cells[idx].mine_prob > pmin + 1e-9);
   }
 
-  if (hover_x >= 0 && hover_y >= 0 && hover_x < b->width &&
-      hover_y < b->height) {
-    int idx = game_index(b, hover_x, hover_y);
+  if (hover.x >= 0 && hover.y >= 0 && hover.x < b->width &&
+      hover.y < b->height) {
+    int idx = game_index(b, hover.x, hover.y);
     if (!b->cells[idx].revealed) {
       out->hover_valid = true;
-      out->hover_x = hover_x;
-      out->hover_y = hover_y;
+      out->hover = hover;
       out->hover_pct = reasoning_pct(a->cells[idx].mine_prob);
       out->hover_forced_safe = a->cells[idx].forced_safe;
       out->hover_forced_mine = a->cells[idx].forced_mine;

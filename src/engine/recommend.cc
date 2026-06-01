@@ -73,14 +73,13 @@ double solver_min_risk(const struct Board* b, const struct Analysis* a) {
 }
 
 int solver_recommend_move(const struct Board* b, const struct Analysis* a,
-                          int* out_x, int* out_y) {
-  if (a->best_x < 0 || a->best_y < 0) {
+                          struct Pt* out) {
+  if (a->best.x < 0 || a->best.y < 0) {
     return -1; /* no covered cell (solved/terminal) */
   }
   /* Opening pinned to the engine's corner pick — identical to baseline. */
   if (a->eval == EVAL_START) {
-    *out_x = a->best_x;
-    *out_y = a->best_y;
+    *out = a->best;
     return 0;
   }
 
@@ -121,7 +120,7 @@ int solver_recommend_move(const struct Board* b, const struct Analysis* a,
   if (bx < 0) {
     return -1;
   }
-  *out_x = bx;
-  *out_y = by;
+  out->x = bx;
+  out->y = by;
   return 0;
 }

@@ -21,10 +21,10 @@ int policy_select(int policy_id, const struct Board* b,
   }
   /* POLICY_BASELINE: forward the engine's precomputed min-prob pick. */
   (void)b;
-  if (a->best_x < 0 || a->best_y < 0) {
+  if (a->best.x < 0 || a->best.y < 0) {
     return -1; /* no covered cell (solved/terminal) */
   }
-  out->x = a->best_x;
-  out->y = a->best_y;
+  out->x = a->best.x;
+  out->y = a->best.y;
   return 0;
 }

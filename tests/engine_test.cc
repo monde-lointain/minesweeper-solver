@@ -206,8 +206,8 @@ TEST_F(Engine, OneTwoOneForced) {
   EXPECT_TRUE(a.cells[ix(3, 2, 1)].forced_mine);
   EXPECT_TRUE(a.cells[ix(3, 1, 1)].forced_safe);
   EXPECT_EQ(a.eval, EVAL_SAFE);
-  EXPECT_EQ(a.best_x, 1);
-  EXPECT_EQ(a.best_y, 1);
+  EXPECT_EQ(a.best.x, 1);
+  EXPECT_EQ(a.best.y, 1);
   EXPECT_NEAR(a.best_prob, 0.0, 1e-9);
 }
 
@@ -301,8 +301,8 @@ TEST_F(Engine, StartUniform) {
   solver_analyze(&b, &a, s);
   EXPECT_EQ(a.eval, EVAL_START);
   EXPECT_NEAR(a.cells[0].mine_prob, 10.0 / 81.0, 1e-9);
-  EXPECT_EQ(a.best_x, 0);
-  EXPECT_EQ(a.best_y, 0);
+  EXPECT_EQ(a.best.x, 0);
+  EXPECT_EQ(a.best.y, 0);
 }
 
 TEST_F(Engine, WonAndLost) {

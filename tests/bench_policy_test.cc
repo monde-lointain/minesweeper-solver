@@ -27,8 +27,8 @@ TEST(BenchPolicy, BaselineMatchesEngineBestAndIsCovered) {
   struct Move mv;
   int rc = policy_select(POLICY_BASELINE, &b, a, &mv);
   ASSERT_EQ(rc, 0);
-  EXPECT_EQ(mv.x, a->best_x);
-  EXPECT_EQ(mv.y, a->best_y);
+  EXPECT_EQ(mv.x, a->best.x);
+  EXPECT_EQ(mv.y, a->best.y);
   EXPECT_FALSE(b.cells[game_index(&b, mv.x, mv.y)].revealed);
 
   free(a);
@@ -45,8 +45,8 @@ TEST(BenchPolicy, ReturnsNegativeWhenNoBestMove) {
 
   struct Analysis* a = (struct Analysis*)calloc(1, sizeof *a);
   ASSERT_NE(a, nullptr);
-  a->best_x = -1;
-  a->best_y = -1;
+  a->best.x = -1;
+  a->best.y = -1;
 
   struct Move mv;
   EXPECT_EQ(policy_select(POLICY_BASELINE, &b, a, &mv), -1);

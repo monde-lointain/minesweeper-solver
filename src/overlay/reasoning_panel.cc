@@ -52,7 +52,7 @@ void reasoning_panel_draw(const struct ReasoningView* v) {
 
   /* Recommendation */
   if (v->has_move) {
-    ImGui::Text("Move (%d, %d)", v->move_x, v->move_y);
+    ImGui::Text("Move (%d, %d)", v->move.x, v->move.y);
     ImGui::Text("risk %d%% mine", v->risk_pct);
     ImGui::ProgressBar((float)v->risk_pct / 100.0f, ImVec2(-1.0f, 6.0f), "");
     if (v->verdict == EVAL_SAFE) {
@@ -90,7 +90,7 @@ void reasoning_panel_draw(const struct ReasoningView* v) {
 
   /* Hover inspect */
   if (v->hover_valid) {
-    ImGui::Text("cell (%d, %d): %d%% mine", v->hover_x, v->hover_y,
+    ImGui::Text("cell (%d, %d): %d%% mine", v->hover.x, v->hover.y,
                 v->hover_pct);
     if (v->hover_forced_safe) {
       ImGui::SameLine();

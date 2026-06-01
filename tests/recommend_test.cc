@@ -25,8 +25,8 @@ void mkanalysis(struct Analysis* a, const struct Board* b, double p) {
     a->cells[i].mine_prob = p;
   }
   a->eval = EVAL_GUESS;
-  a->best_x = 0;
-  a->best_y = 0;
+  a->best.x = 0;
+  a->best.y = 0;
   a->best_prob = p;
 }
 
@@ -35,6 +35,16 @@ void setp(struct Analysis* a, const struct Board* b, int x, int y, double p) {
 }
 void setgain(struct Analysis* a, const struct Board* b, int x, int y, int g) {
   a->cells[game_index(b, x, y)].info_gain = g;
+}
+
+/* Adapter preserving the int-out call shape these tests were written against.
+ */
+int reco(const struct Board* b, const struct Analysis* a, int* x, int* y) {
+  struct Pt p = {-1, -1};
+  int rc = solver_recommend_move(b, a, &p);
+  *x = p.x;
+  *y = p.y;
+  return rc;
 }
 
 }  // namespace
@@ -51,7 +61,7 @@ TEST(Recommend, InfoGainBreaksTie) {
   setgain(&a, &b, 5, 1, 4);
   int x = -1;
   int y = -1;
-  ASSERT_EQ(solver_recommend_move(&b, &a, &x, &y), 0);
+  ASSERT_EQ(reco(&b, &a, &x, &y), 0);
   EXPECT_EQ(x, 5);
   EXPECT_EQ(y, 1);
 }
@@ -69,7 +79,7 @@ TEST(Recommend, MinRiskPrimary) {
   setgain(&a, &b, 3, 1, 9);
   int x = -1;
   int y = -1;
-  ASSERT_EQ(solver_recommend_move(&b, &a, &x, &y), 0);
+  ASSERT_EQ(reco(&b, &a, &x, &y), 0);
   EXPECT_EQ(x, 1);
   EXPECT_EQ(y, 1);
 }
@@ -86,7 +96,7 @@ TEST(Recommend, NeverForcedMine) {
   a.cells[mi].info_gain = 99;
   int x = -1;
   int y = -1;
-  ASSERT_EQ(solver_recommend_move(&b, &a, &x, &y), 0);
+  ASSERT_EQ(reco(&b, &a, &x, &y), 0);
   EXPECT_NE(game_index(&b, x, y), mi);
 }
 
@@ -98,11 +108,11 @@ TEST(Recommend, OpeningPinned) {
   struct Analysis a;
   mkanalysis(&a, &b, 0.123);
   a.eval = EVAL_START;
-  a.best_x = 0;
-  a.best_y = 0;
+  a.best.x = 0;
+  a.best.y = 0;
   int x = -1;
   int y = -1;
-  ASSERT_EQ(solver_recommend_move(&b, &a, &x, &y), 0);
+  ASSERT_EQ(reco(&b, &a, &x, &y), 0);
   EXPECT_EQ(x, 0);
   EXPECT_EQ(y, 0);
 }
@@ -113,11 +123,11 @@ TEST(Recommend, NoneWhenTerminal) {
   mkboard(&b, 4, 4);
   struct Analysis a;
   mkanalysis(&a, &b, 0.3);
-  a.best_x = -1;
-  a.best_y = -1;
+  a.best.x = -1;
+  a.best.y = -1;
   int x = -1;
   int y = -1;
-  EXPECT_EQ(solver_recommend_move(&b, &a, &x, &y), -1);
+  EXPECT_EQ(reco(&b, &a, &x, &y), -1);
 }
 
 TEST(Recommend, Deterministic) {
@@ -131,8 +141,8 @@ TEST(Recommend, Deterministic) {
   int y1 = -1;
   int x2 = -1;
   int y2 = -1;
-  ASSERT_EQ(solver_recommend_move(&b, &a, &x1, &y1), 0);
-  ASSERT_EQ(solver_recommend_move(&b, &a, &x2, &y2), 0);
+  ASSERT_EQ(reco(&b, &a, &x1, &y1), 0);
+  ASSERT_EQ(reco(&b, &a, &x2, &y2), 0);
   EXPECT_EQ(x1, x2);
   EXPECT_EQ(y1, y2);
 }
@@ -155,7 +165,7 @@ TEST(Recommend, SafeGateRejectsRiskyBand) {
   setp(&a, &b, 0, 2, 0.0); /* a far proven-safe cell, lower progress */
   int x = -1;
   int y = -1;
-  ASSERT_EQ(solver_recommend_move(&b, &a, &x, &y), 0);
+  ASSERT_EQ(reco(&b, &a, &x, &y), 0);
   EXPECT_LT(a.cells[game_index(&b, x, y)].mine_prob, 1e-9);
   EXPECT_FALSE(x == 5 && y == 0);
 }

@@ -1,4 +1,4 @@
-/* engine.h — pure Minesweeper probability engine. FROZEN CONTRACT (Stream A.0).
+/* engine.h — pure Minesweeper probability engine (Stream A.0).
  *
  * NO SDL/ImGui. Reads only what the player sees (revealed `adjacent` counts,
  * geometry, total `mines`); never reads `cell.mine` for a covered cell and
@@ -10,6 +10,7 @@
 
 #include "minesweeper/game.h"  /* struct Board/Cell, game_index */
 #include "minesweeper/types.h" /* BOARD_MAX_CELLS */
+#include "solver/geom.h"       /* struct Pt */
 
 /* Position evaluation, analogous to a chess engine's verdict. */
 enum SolverEval {
@@ -37,8 +38,8 @@ struct CellAnalysis {
 /* Whole-board analysis. cells[] indexed via game_index. */
 struct Analysis {
   struct CellAnalysis cells[BOARD_MAX_CELLS];
-  int best_x; /* lowest-risk move over all covered cells; -1 if none */
-  int best_y;
+  struct Pt
+      best; /* lowest-risk move over all covered cells; best.x < 0 if none */
   double best_prob;     /* P(mine) of best move (0 when forced safe) */
   double interior_prob; /* uniform P(mine) for interior cells (eval line) */
   int interior_count;   /* number of interior cells (0 => none) */

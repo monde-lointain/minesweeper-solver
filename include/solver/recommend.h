@@ -14,12 +14,13 @@
 
 #include "minesweeper/game.h" /* struct Board */
 #include "solver/engine.h"    /* struct Analysis */
+#include "solver/geom.h"      /* struct Pt */
 
-/* Recommended covered cell to reveal. Returns 0 and writes the chosen x,y
- * through out_x,out_y on success; returns -1 if no covered cell exists. Pure:
- * reads b and a, writes only the out pointers. */
+/* Recommended covered cell to reveal. Returns 0 and writes the chosen cell to
+ * *out on success; returns -1 if no covered cell exists. Pure: reads b and a,
+ * writes only *out. */
 int solver_recommend_move(const struct Board* b, const struct Analysis* a,
-                          int* out_x, int* out_y);
+                          struct Pt* out);
 
 /* Minimum P(mine) over covered, non-forced_mine cells; 2.0 if none exist. The
  * shared min-risk used both as solver_recommend_move's band anchor and as the

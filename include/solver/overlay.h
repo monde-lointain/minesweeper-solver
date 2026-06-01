@@ -1,4 +1,4 @@
-/* overlay.h — analysis overlay draw contract. FROZEN CONTRACT (Stream A.0).
+/* overlay.h — analysis overlay draw contract (Stream A.0).
  *
  * SDL/ImGui boundary: overlay_draw paints the probability tints, the best-move
  * ring, and the floating eval readout on top of the already-rendered board.

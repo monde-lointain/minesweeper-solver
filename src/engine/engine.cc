@@ -560,8 +560,8 @@ static void analyze_start(const struct Board* b, struct Analysis* out) {
       out->cells[i].is_frontier = false;
     }
   }
-  out->best_x = 0;
-  out->best_y = 0;
+  out->best.x = 0;
+  out->best.y = 0;
   out->best_prob = (double)uniform;
   out->interior_prob = (double)uniform;
   out->interior_count = ncells;
@@ -881,8 +881,8 @@ static void pick_best_move(const struct Board* b, struct Analysis* out,
 
   out->interior_count = ctx->interior_n;
   out->interior_prob = (double)ctx->interior_prob;
-  out->best_x = best_x;
-  out->best_y = best_y;
+  out->best.x = best_x;
+  out->best.y = best_y;
   out->best_prob = best_x >= 0 ? best : 0.0;
   if (best_x < 0) {
     out->eval = EVAL_SOLVED;
@@ -898,8 +898,8 @@ static void pick_best_move(const struct Board* b, struct Analysis* out,
 void solver_analyze(const struct Board* b, struct Analysis* out,
                     struct SolverScratch* s) {
   memset(out, 0, sizeof *out);
-  out->best_x = -1;
-  out->best_y = -1;
+  out->best.x = -1;
+  out->best.y = -1;
   out->exact = true; /* default: terminal/start/safe have no estimation */
 
   if (analyze_terminal(b, out)) {

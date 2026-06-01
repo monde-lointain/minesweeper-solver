@@ -17,6 +17,7 @@
 #include "minesweeper/types.h"
 #include "minesweeper/ui.h"
 #include "solver/engine.h"
+#include "solver/geom.h"
 
 /* Board fields the cached analysis depends on. When this tuple changes the
  * analysis is recomputed; flags are deliberately excluded (the engine ignores
@@ -37,9 +38,8 @@ struct AppState {
   struct Board board;
   struct Settings settings;
 
-  int button_face; /* enum ButtonSprite */
-  int press_x;     /* currently held cell, -1 if none */
-  int press_y;
+  int button_face;     /* enum ButtonSprite */
+  struct Pt press;     /* currently held cell, press.x < 0 if none */
   bool pressing_board; /* left button held over a cell */
   bool pressing_face;  /* left button held on smiley */
   bool chord_active;   /* both buttons / middle held */
@@ -76,8 +76,7 @@ struct AppState {
   void* ctx_game;  /* ImGuiContext* (opaque here to avoid an ImGui include) */
   void* ctx_panel; /* ImGuiContext* */
   bool panel_on;   /* F9 toggles the companion window */
-  int hover_x;     /* covered cell under the game cursor, -1 if none */
-  int hover_y;
+  struct Pt hover; /* covered cell under the game cursor, hover.x < 0 if none */
 };
 
 /* Allocate + initialize: SDL, window/renderer, ImGui, config, assets, first

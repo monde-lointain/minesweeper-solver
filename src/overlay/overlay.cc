@@ -22,12 +22,11 @@ void overlay_draw(const struct Analysis* a, const struct Board* b,
   }
 
   /* The recommended move = the move the win-rate policy would play. */
-  int rx = 0;
-  int ry = 0;
-  if (solver_recommend_move(b, a, &rx, &ry) != 0) {
+  struct Pt rec;
+  if (solver_recommend_move(b, a, &rec) != 0) {
     return; /* no covered cell to recommend */
   }
-  if (b->cells[game_index(b, rx, ry)].revealed) {
+  if (b->cells[game_index(b, rec.x, rec.y)].revealed) {
     return;
   }
 
@@ -36,7 +35,7 @@ void overlay_draw(const struct Analysis* a, const struct Board* b,
   ImDrawList* dl = ImGui::GetBackgroundDrawList();
   int cell = BLOCK_PX * lay->scale;
   struct OverlayRect r =
-      overlay_cell_rect(lay->grid_x, lay->grid_y, cell, rx, ry);
+      overlay_cell_rect(lay->grid_x, lay->grid_y, cell, rec.x, rec.y);
   ImVec2 p0((float)(r.x + 1), (float)(r.y + 1));
   ImVec2 p1((float)((r.x + r.w) - 1), (float)((r.y + r.h) - 1));
   float thickness = (float)lay->scale + 1.0f;

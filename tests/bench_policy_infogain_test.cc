@@ -27,8 +27,8 @@ void mkanalysis(struct Analysis* a, const struct Board* b, double p) {
     a->cells[i].mine_prob = p;
   }
   a->eval = EVAL_GUESS;
-  a->best_x = 0;
-  a->best_y = 0;
+  a->best.x = 0;
+  a->best.y = 0;
   a->best_prob = p;
 }
 
@@ -159,8 +159,8 @@ TEST(PolicyInfogain, OpeningPinnedToEnginePick) {
   struct Analysis a;
   mkanalysis(&a, &b, 0.123);
   a.eval = EVAL_START;
-  a.best_x = 0;
-  a.best_y = 0;
+  a.best.x = 0;
+  a.best.y = 0;
 
   struct Move mv;
   ASSERT_EQ(policy_infogain_select(&b, &a, &mv), 0);
