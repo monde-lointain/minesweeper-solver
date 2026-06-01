@@ -505,21 +505,35 @@ static void fallback_component(struct SolverScratch* s, int comp) {
 
 /* ---- step 5: global combination -------------------------------------------
  */
-static void conv(const long double* a, int la, const long double* b, int lb,
-                 long double* out, int* lout) {
-  int n = la + lb - 1;
+/* A polynomial as a non-owning (coefficients, length) view — bundles the
+ * (buffer, len) data clump that conv and the combine DP thread together. POD;
+ * storage stays in the caller's flat scratch arrays. */
+struct Poly {
+  long double* v;
+  int len;
+};
+
+static inline struct Poly poly(long double* v, int len) {
+  struct Poly p = {v, len};
+  return p;
+}
+
+/* out-buffer convolution a (x) b -> {out, a.len + b.len - 1}. Same coefficient
+ * accumulation order as before (golden-pinned). */
+static struct Poly conv(struct Poly a, struct Poly b, long double* out) {
+  int n = a.len + b.len - 1;
   for (int i = 0; i < n; ++i) {
     out[i] = 0.0L;
   }
-  for (int i = 0; i < la; ++i) {
-    if (a[i] == 0.0L) {
+  for (int i = 0; i < a.len; ++i) {
+    if (a.v[i] == 0.0L) {
       continue;
     }
-    for (int j = 0; j < lb; ++j) {
-      out[i + j] += a[i] * b[j];
+    for (int j = 0; j < b.len; ++j) {
+      out[i + j] += a.v[i] * b.v[j];
     }
   }
-  *lout = n;
+  return poly(out, n);
 }
 
 /* Transient values shared between analyze sub-steps (call-local, not part of
@@ -644,12 +658,12 @@ static void build_fbdist(struct SolverScratch* s, int ncomp) {
       long double bern[2];
       bern[0] = 1.0L - fbp[lv];
       bern[1] = fbp[lv];
-      int outlen = 0;
-      conv(s->dp.fbdist, s->dp.fbdist_len, bern, 2, s->dp.wall, &outlen);
-      for (int i = 0; i < outlen; ++i) {
-        s->dp.fbdist[i] = s->dp.wall[i];
+      struct Poly r =
+          conv(poly(s->dp.fbdist, s->dp.fbdist_len), poly(bern, 2), s->dp.wall);
+      for (int i = 0; i < r.len; ++i) {
+        s->dp.fbdist[i] = r.v[i];
       }
-      s->dp.fbdist_len = outlen;
+      s->dp.fbdist_len = r.len;
     }
   }
 }
@@ -690,22 +704,27 @@ static void compute_interior_prob(const struct Board* b,
     s->dp.prefix_len[0] = 1;
     for (int e = 0; e < nexact; ++e) {
       int c = s->dp.exact_idx[e];
-      conv(s->dp.prefix[e], s->dp.prefix_len[e], res_shat(s, c),
-           s->res.nv[c] + 1, s->dp.prefix[e + 1], &s->dp.prefix_len[e + 1]);
+      s->dp.prefix_len[e + 1] =
+          conv(poly(s->dp.prefix[e], s->dp.prefix_len[e]),
+               poly(res_shat(s, c), s->res.nv[c] + 1), s->dp.prefix[e + 1])
+              .len;
     }
     s->dp.suffix[nexact][0] = 1.0L;
     s->dp.suffix_len[nexact] = 1;
     for (int e = nexact - 1; e >= 0; --e) {
       int c = s->dp.exact_idx[e];
-      conv(res_shat(s, c), s->res.nv[c] + 1, s->dp.suffix[e + 1],
-           s->dp.suffix_len[e + 1], s->dp.suffix[e], &s->dp.suffix_len[e]);
+      s->dp.suffix_len[e] =
+          conv(poly(res_shat(s, c), s->res.nv[c] + 1),
+               poly(s->dp.suffix[e + 1], s->dp.suffix_len[e + 1]),
+               s->dp.suffix[e])
+              .len;
     }
     /* Wall = (exact prefix) (x) fbdist = full frontier-mine distribution. */
-    int wall_len = 0;
-    conv(s->dp.prefix[nexact], s->dp.prefix_len[nexact], s->dp.fbdist,
-         s->dp.fbdist_len, s->dp.wall, &wall_len);
+    struct Poly wall =
+        conv(poly(s->dp.prefix[nexact], s->dp.prefix_len[nexact]),
+             poly(s->dp.fbdist, s->dp.fbdist_len), s->dp.wall);
     /* zsum = sum_F Wall[F] * C(interior_n, r_eff - F) */
-    for (int f = 0; f < wall_len; ++f) {
+    for (int f = 0; f < wall.len; ++f) {
       long double w = s->dp.wall[f];
       if (w == 0.0L) {
         continue;
@@ -764,13 +783,13 @@ static void write_exact_marginals(struct Analysis* out, struct SolverScratch* s,
   for (int e = 0; e < ctx->nexact; ++e) {
     int c = s->dp.exact_idx[e];
     /* O_c = prefix[e] (x) suffix[e+1] */
-    int oclen = 0;
-    conv(s->dp.prefix[e], s->dp.prefix_len[e], s->dp.suffix[e + 1],
-         s->dp.suffix_len[e + 1], s->dp.oc, &oclen);
+    struct Poly oc =
+        conv(poly(s->dp.prefix[e], s->dp.prefix_len[e]),
+             poly(s->dp.suffix[e + 1], s->dp.suffix_len[e + 1]), s->dp.oc);
     /* fold in the fallback distribution so c's complement covers ALL other
      * frontier mines (other exact comps + fallback comps). */
-    int oc2len = 0;
-    conv(s->dp.oc, oclen, s->dp.fbdist, s->dp.fbdist_len, s->dp.oc2, &oc2len);
+    struct Poly oc2 = conv(oc, poly(s->dp.fbdist, s->dp.fbdist_len), s->dp.oc2);
+    int oc2len = oc2.len;
     /* A_c[k] = sum_t oc2[t] * C(interior_n, r_eff - k - t) */
     long double ac[MAX_COMP_VARS + 1];
     for (int k = 0; k <= s->res.nv[c]; ++k) {
