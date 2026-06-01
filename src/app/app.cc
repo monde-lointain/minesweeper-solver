@@ -466,11 +466,9 @@ SDL_AppResult app_event(struct AppState* s, SDL_Event* event) {
     case SDL_EVENT_QUIT:
       return SDL_APP_SUCCESS;
     case SDL_EVENT_WINDOW_MINIMIZED:
-    case SDL_EVENT_WINDOW_FOCUS_LOST:
       app_set_paused(s, true);
       break;
     case SDL_EVENT_WINDOW_RESTORED:
-    case SDL_EVENT_WINDOW_FOCUS_GAINED:
       app_set_paused(s, false);
       break;
     case SDL_EVENT_KEY_DOWN:
@@ -507,10 +505,27 @@ SDL_AppResult app_event(struct AppState* s, SDL_Event* event) {
         app_mouse_up(s, event);
       }
       break;
-    case SDL_EVENT_MOUSE_MOTION:
+    case SDL_EVENT_MOUSE_MOTION: {
       if (!io->WantCaptureMouse && (s->pressing_board || s->chord_active)) {
         app_press_update(s, event->motion.x, event->motion.y);
       }
+      struct Layout lay;
+      int cx = 0;
+      int cy = 0;
+      app_compute_layout(s, &lay);
+      if (render_cell_at(&s->board, &lay, event->motion.x, event->motion.y, &cx,
+                         &cy)) {
+        s->hover_x = cx;
+        s->hover_y = cy;
+      } else {
+        s->hover_x = -1;
+        s->hover_y = -1;
+      }
+      break;
+    }
+    case SDL_EVENT_WINDOW_MOUSE_LEAVE:
+      s->hover_x = -1;
+      s->hover_y = -1;
       break;
     default:
       break;
