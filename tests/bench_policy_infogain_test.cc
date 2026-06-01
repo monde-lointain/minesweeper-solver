@@ -9,7 +9,7 @@
 #include <string.h>
 
 #include "minesweeper/game.h"
-#include "policy_infogain.h"
+#include "policy.h"
 #include "solver/engine.h"
 
 namespace {
@@ -73,7 +73,7 @@ TEST(PolicyInfogain, InfoGainOutranksCascade) {
   setgain(&a, &b, 5, 1, 4);
 
   struct Pt mv;
-  ASSERT_EQ(policy_infogain_select(&b, &a, &mv), 0);
+  ASSERT_EQ(policy_select(POLICY_INFOGAIN, &b, &a, &mv), 0);
   EXPECT_EQ(mv.x, 5);
   EXPECT_EQ(mv.y, 1);
 }
@@ -92,7 +92,7 @@ TEST(PolicyInfogain, MinRiskRespectedOverInfoGain) {
   setgain(&a, &b, 3, 1, 9);
 
   struct Pt mv;
-  ASSERT_EQ(policy_infogain_select(&b, &a, &mv), 0);
+  ASSERT_EQ(policy_select(POLICY_INFOGAIN, &b, &a, &mv), 0);
   EXPECT_EQ(mv.x, 1);
   EXPECT_EQ(mv.y, 1);
   EXPECT_DOUBLE_EQ(a.cells[game_index(&b, mv.x, mv.y)].mine_prob, 0.2);
@@ -113,7 +113,7 @@ TEST(PolicyInfogain, CascadeBreaksInfoGainTie) {
   set_neighbors(&a, &b, 5, 1, 0.5); /* higher cascade -> wins */
 
   struct Pt mv;
-  ASSERT_EQ(policy_infogain_select(&b, &a, &mv), 0);
+  ASSERT_EQ(policy_select(POLICY_INFOGAIN, &b, &a, &mv), 0);
   EXPECT_EQ(mv.x, 5);
   EXPECT_EQ(mv.y, 1);
 }
@@ -130,7 +130,7 @@ TEST(PolicyInfogain, NeverForcedMine) {
   a.cells[mi].info_gain = 99;
 
   struct Pt mv;
-  ASSERT_EQ(policy_infogain_select(&b, &a, &mv), 0);
+  ASSERT_EQ(policy_select(POLICY_INFOGAIN, &b, &a, &mv), 0);
   int chosen = game_index(&b, mv.x, mv.y);
   EXPECT_NE(chosen, mi);
   EXPECT_FALSE(a.cells[chosen].forced_mine);
@@ -146,8 +146,8 @@ TEST(PolicyInfogain, Deterministic) {
 
   struct Pt m1;
   struct Pt m2;
-  ASSERT_EQ(policy_infogain_select(&b, &a, &m1), 0);
-  ASSERT_EQ(policy_infogain_select(&b, &a, &m2), 0);
+  ASSERT_EQ(policy_select(POLICY_INFOGAIN, &b, &a, &m1), 0);
+  ASSERT_EQ(policy_select(POLICY_INFOGAIN, &b, &a, &m2), 0);
   EXPECT_EQ(m1.x, m2.x);
   EXPECT_EQ(m1.y, m2.y);
 }
@@ -163,7 +163,7 @@ TEST(PolicyInfogain, OpeningPinnedToEnginePick) {
   a.best.y = 0;
 
   struct Pt mv;
-  ASSERT_EQ(policy_infogain_select(&b, &a, &mv), 0);
+  ASSERT_EQ(policy_select(POLICY_INFOGAIN, &b, &a, &mv), 0);
   EXPECT_EQ(mv.x, 0);
   EXPECT_EQ(mv.y, 0);
 }

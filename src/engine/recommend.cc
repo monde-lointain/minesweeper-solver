@@ -1,8 +1,8 @@
 /* recommend.cc — shared "best move to play" selector (info-gain guess policy).
  *
  * Single source of truth for the move recommendation. The bench win-rate policy
- * (policy_infogain.cc) and the GUI overlay both call solver_recommend_move, so
- * the cell the overlay highlights is exactly the cell the benchmark plays.
+ * (policy.cc, POLICY_INFOGAIN) and the GUI overlay both call this, so the cell
+ * the overlay highlights is exactly the cell the benchmark plays.
  *
  * Primary key: minimize P(mine). Among cells within RECOMMEND_BAND of the
  * minimum risk, prefer max info_gain (paper's Inf(x) — # cells forced if this

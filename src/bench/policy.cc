@@ -8,7 +8,7 @@
  */
 #include "policy.h"
 
-#include "policy_infogain.h"
+#include "solver/recommend.h"
 
 int policy_needs_infogain(int policy_id) {
   return policy_id == POLICY_INFOGAIN ? 1 : 0;
@@ -17,7 +17,8 @@ int policy_needs_infogain(int policy_id) {
 int policy_select(int policy_id, const struct Board* b,
                   const struct Analysis* a, struct Pt* out) {
   if (policy_id == POLICY_INFOGAIN) {
-    return policy_infogain_select(b, a, out);
+    /* paper's Inf(x) pick, shared with the GUI overlay (recommend.cc). */
+    return solver_recommend_move(b, a, out);
   }
   /* POLICY_BASELINE: forward the engine's precomputed min-prob pick. */
   (void)b;
