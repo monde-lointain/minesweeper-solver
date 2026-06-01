@@ -1,10 +1,9 @@
 /* policy_infogain.h — info-gain guess policy (paper's Inf(x)).
  *
- * Primary key unchanged from baseline (minimize P(mine)); among cells within
- * HEUR_BAND of the minimum risk, prefer the one that forces the most future
- * deductions if it turns out safe (a->cells[].info_gain, filled by
- * solver_analyze_infogain), breaking remaining ties by cascade likelihood then
- * row-major. Validated by Liu et al. 2022 (Knowledge-Based Systems 246).
+ * Thin adapter over solver_recommend_move (src/engine/recommend.cc), the shared
+ * selector the GUI overlay also uses: min P(mine) primary, then max info_gain
+ * (cells forced if this reveal is safe), then progress, then row-major.
+ * Validated by Liu et al. 2022 (Knowledge-Based Systems 246).
  *
  * Requires the engine's info_gain field: the runner must analyze the board with
  * solver_analyze_infogain for this policy (see policy_needs_infogain).

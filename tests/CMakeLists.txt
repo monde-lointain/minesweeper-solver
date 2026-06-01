@@ -34,6 +34,11 @@ add_executable(engine_infogain_test engine_infogain_test.cc)
 target_link_libraries(engine_infogain_test PRIVATE solver_lib gtest_main)
 gtest_discover_tests(engine_infogain_test)
 
+# Shared move recommendation (the bench policy and the GUI overlay both call it).
+add_executable(recommend_test recommend_test.cc)
+target_link_libraries(recommend_test PRIVATE solver_lib gtest_main)
+gtest_discover_tests(recommend_test)
+
 # Benchmark harness tests. Each links bench_lib (which PUBLIC-propagates the
 # bench include dir + solver_lib/game_core). Per-module surfaces keep ownership
 # file-disjoint across streams; bench_test is the cross-module integration gate.

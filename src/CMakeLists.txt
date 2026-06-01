@@ -24,6 +24,7 @@ target_compile_options(minesweeper_reuse PRIVATE -Wall -Wextra)
 # without a graphics stack.
 add_library(solver_lib STATIC
   engine/engine.cc
+  engine/recommend.cc
   overlay/overlay_geom.cc
 )
 target_include_directories(solver_lib PUBLIC

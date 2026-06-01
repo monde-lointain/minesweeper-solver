@@ -1378,8 +1378,9 @@ static int component_infogain(struct SolverScratch* s, int comp, int pin_var) {
 
 /* Only competitive guesses are worth pricing: a policy guesses near the minimum
  * risk, so info_gain is computed solely for frontier cells within this band of
- * best_prob. Must stay >= the bench's guess band (HEUR_BAND) so every cell a
- * policy considers is covered; widening it only costs time, never correctness.
+ * best_prob. Must stay >= solver_recommend_move's band (RECOMMEND_BAND) so
+ * every cell the policy considers is covered; widening it only costs time,
+ * never correctness.
  */
 static const double INFOGAIN_BAND = 0.05;
 

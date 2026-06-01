@@ -40,9 +40,11 @@ static uint32_t solver_rng(void* ctx, uint32_t n) {
   return (n != 0u) ? (x % n) : 0u;
 }
 
-/* (3) recompute the cached analysis. */
+/* (3) recompute the cached analysis. solver_analyze_infogain so out->info_gain
+ * is populated for the overlay's recommended-move pick (solver_recommend_move),
+ * matching the bench win-rate policy. */
 static void app_reanalyze(struct AppState* s) {
-  solver_analyze(&s->board, &s->analysis, s->scratch);
+  solver_analyze_infogain(&s->board, &s->analysis, s->scratch);
 }
 
 /* ---- difficulty geometry ----------------------------------------------- */
