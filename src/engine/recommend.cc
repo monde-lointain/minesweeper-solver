@@ -17,6 +17,7 @@
 #include "solver/recommend.h"
 
 #include "solver/engine.h"
+#include "solver/geom.h" /* struct Pt, solver_neighbor */
 
 /* Tolerance band on P(mine): cells within this of the minimum risk are treated
  * as tied and ordered by info_gain then progress. 0 => ties broken only on
@@ -40,22 +41,17 @@ static double progress_score(const struct Board* b, const struct Analysis* a,
                              int x, int y) {
   double cascade = 1.0;
   int connect = 0;
-  for (int dy = -1; dy <= 1; ++dy) {
-    for (int dx = -1; dx <= 1; ++dx) {
-      if (dx == 0 && dy == 0) {
-        continue;
-      }
-      int nx = x + dx;
-      int ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= b->width || ny >= b->height) {
-        continue;
-      }
-      int idx = game_index(b, nx, ny);
-      if (b->cells[idx].revealed) {
-        ++connect;
-      } else {
-        cascade *= (1.0 - a->cells[idx].mine_prob);
-      }
+  struct Pt cell = {x, y};
+  for (int k = 0; k < 8; ++k) {
+    struct Pt nb;
+    if (!solver_neighbor(b, cell, k, &nb)) {
+      continue;
+    }
+    int idx = game_index(b, nb.x, nb.y);
+    if (b->cells[idx].revealed) {
+      ++connect;
+    } else {
+      cascade *= (1.0 - a->cells[idx].mine_prob);
     }
   }
   return RECOMMEND_W_CONNECT * ((double)connect / 8.0) +

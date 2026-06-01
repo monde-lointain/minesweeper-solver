@@ -27,6 +27,7 @@
 #include <string.h>
 
 #include "engine_scratch.h" /* sizing enum + scratch structs + enumerate_reduced */
+#include "solver/geom.h"    /* struct Pt, solver_neighbor */
 #include "solver/util.h"
 
 enum { VAR_UNKNOWN = -1, VAR_SAFE = 0, VAR_MINE = 1 };
@@ -130,28 +131,23 @@ static void build_constraints(const struct Board* b, struct SolverScratch* s) {
       }
       int vars[8];
       int nv = 0;
-      for (int dy = -1; dy <= 1; ++dy) {
-        for (int dx = -1; dx <= 1; ++dx) {
-          if (dx == 0 && dy == 0) {
-            continue;
-          }
-          int nx = x + dx;
-          int ny = y + dy;
-          if (nx < 0 || ny < 0 || nx >= b->width || ny >= b->height) {
-            continue;
-          }
-          if (!cell_covered(b, nx, ny)) {
-            continue;
-          }
-          int idx = game_index(b, nx, ny);
-          if (s->cm.var_of_cell[idx] < 0) {
-            s->cm.var_of_cell[idx] = s->cm.nvar;
-            s->cm.cell_of_var[s->cm.nvar] = idx;
-            s->cm.vstate[s->cm.nvar] = VAR_UNKNOWN;
-            ++s->cm.nvar;
-          }
-          vars[nv++] = s->cm.var_of_cell[idx];
+      struct Pt cell = {x, y};
+      for (int k = 0; k < 8; ++k) {
+        struct Pt nb;
+        if (!solver_neighbor(b, cell, k, &nb)) {
+          continue;
         }
+        if (!cell_covered(b, nb.x, nb.y)) {
+          continue;
+        }
+        int idx = game_index(b, nb.x, nb.y);
+        if (s->cm.var_of_cell[idx] < 0) {
+          s->cm.var_of_cell[idx] = s->cm.nvar;
+          s->cm.cell_of_var[s->cm.nvar] = idx;
+          s->cm.vstate[s->cm.nvar] = VAR_UNKNOWN;
+          ++s->cm.nvar;
+        }
+        vars[nv++] = s->cm.var_of_cell[idx];
       }
       if (nv == 0) {
         continue;
