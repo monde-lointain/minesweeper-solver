@@ -642,6 +642,24 @@ static void app_draw_panel(struct AppState* s) {
   ImGui::SetCurrentContext((ImGuiContext*)s->ctx_game);
 }
 
+/* Draw the board + chrome, the analysis overlay (F10), then ImGui on top. */
+static void app_draw_main(struct AppState* s, struct Layout* lay) {
+  SDL_SetRenderDrawColor(s->renderer, 192, 192, 192, 255);
+  SDL_RenderClear(s->renderer);
+  struct FrameView view;
+  view.button_face = s->button_face;
+  view.press_x = s->press.x;
+  view.press_y = s->press.y;
+  view.elapsed_sec = s->elapsed_sec;
+  render_frame(s->renderer, &s->assets, &s->board, lay, &view);
+  if (s->overlay_on) {
+    overlay_draw(&s->analysis, &s->board, lay);
+  }
+  ImGui::Render();
+  ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), s->renderer);
+  SDL_RenderPresent(s->renderer);
+}
+
 SDL_AppResult app_iterate(struct AppState* s) {
   struct Layout lay;
   struct UiActions actions;
@@ -686,22 +704,7 @@ SDL_AppResult app_iterate(struct AppState* s) {
 
   app_resolve_face(s);
 
-  /* Draw: board+chrome, then the analysis overlay (4), then ImGui on top. */
-  SDL_SetRenderDrawColor(s->renderer, 192, 192, 192, 255);
-  SDL_RenderClear(s->renderer);
-  struct FrameView view;
-  view.button_face = s->button_face;
-  view.press_x = s->press.x;
-  view.press_y = s->press.y;
-  view.elapsed_sec = s->elapsed_sec;
-  render_frame(s->renderer, &s->assets, &s->board, &lay, &view);
-  if (s->overlay_on) {
-    overlay_draw(&s->analysis, &s->board, &lay);
-  }
-  ImGui::Render();
-  ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), s->renderer);
-  SDL_RenderPresent(s->renderer);
-
+  app_draw_main(s, &lay);
   app_draw_panel(s);
 
   return s->want_quit ? SDL_APP_SUCCESS : SDL_APP_CONTINUE;
