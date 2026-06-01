@@ -78,21 +78,25 @@ struct CompResults {
   long double mhat_flat[MHAT_FLAT_MAX];
 };
 
+/* A polynomial: coefficient storage + live length. Owns its buffer so the
+ * combine DP holds each polynomial as one object (no parallel length arrays).
+ * Convolved by engine.cc's conv. */
+/* NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding) */
+struct Poly {
+  long double v[MAXFLEN];
+  int len;
+};
+
 /* global-combination DP scratch + analyze-local combine buffers */
 /* NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding) */
 struct CombineDP {
-  long double prefix[MAXCOMP + 1][MAXFLEN];
-  int prefix_len[MAXCOMP + 1];
-  long double suffix[MAXCOMP + 1][MAXFLEN];
-  int suffix_len[MAXCOMP + 1];
-  int exact_idx[MAXCOMP];  /* compacted list of exact (non-fallback) comps */
-  long double oc[MAXFLEN]; /* per-component leave-one-out convolution buffer */
-  long double
-      fbdist[MAXFLEN]; /* mine-count dist of fallback comps (Poisson-bin) */
-  int fbdist_len;
-  long double
-      wall[MAXFLEN]; /* exact prefix (x) fbdist: full frontier-mine dist */
-  long double oc2[MAXFLEN]; /* leave-one-out (x) fbdist */
+  struct Poly prefix[MAXCOMP + 1];
+  struct Poly suffix[MAXCOMP + 1];
+  int exact_idx[MAXCOMP]; /* compacted list of exact (non-fallback) comps */
+  struct Poly oc;         /* per-component leave-one-out convolution buffer */
+  struct Poly fbdist;     /* mine-count dist of fallback comps (Poisson-bin) */
+  struct Poly wall;       /* exact prefix (x) fbdist: full frontier-mine dist */
+  struct Poly oc2;        /* leave-one-out (x) fbdist */
 };
 
 /* enumeration scratch (one component at a time) */

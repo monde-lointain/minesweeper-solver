@@ -505,35 +505,32 @@ static void fallback_component(struct SolverScratch* s, int comp) {
 
 /* ---- step 5: global combination -------------------------------------------
  */
-/* A polynomial as a non-owning (coefficients, length) view — bundles the
- * (buffer, len) data clump that conv and the combine DP thread together. POD;
- * storage stays in the caller's flat scratch arrays. */
-struct Poly {
-  long double* v;
-  int len;
-};
-
-static inline struct Poly poly(long double* v, int len) {
-  struct Poly p = {v, len};
-  return p;
+/* Materialize a coefficient span [v, v+len) into poly p's storage, so array
+ * slices (res_shat, a local Bernoulli pair) can feed conv, which works on
+ * struct Poly. */
+static void poly_set(struct Poly* p, const long double* v, int len) {
+  p->len = len;
+  for (int i = 0; i < len; ++i) {
+    p->v[i] = v[i];
+  }
 }
 
-/* out-buffer convolution a (x) b -> {out, a.len + b.len - 1}. Same coefficient
- * accumulation order as before (golden-pinned). */
-static struct Poly conv(struct Poly a, struct Poly b, long double* out) {
-  int n = a.len + b.len - 1;
+/* out = a (x) b (coefficient convolution). Same accumulation order as before
+ * (golden-pinned). out must not alias a or b. */
+static void conv(const struct Poly* a, const struct Poly* b, struct Poly* out) {
+  int n = a->len + b->len - 1;
   for (int i = 0; i < n; ++i) {
-    out[i] = 0.0L;
+    out->v[i] = 0.0L;
   }
-  for (int i = 0; i < a.len; ++i) {
-    if (a.v[i] == 0.0L) {
+  for (int i = 0; i < a->len; ++i) {
+    if (a->v[i] == 0.0L) {
       continue;
     }
-    for (int j = 0; j < b.len; ++j) {
-      out[i + j] += a.v[i] * b.v[j];
+    for (int j = 0; j < b->len; ++j) {
+      out->v[i + j] += a->v[i] * b->v[j];
     }
   }
-  return poly(out, n);
+  out->len = n;
 }
 
 /* Transient values shared between analyze sub-steps (call-local, not part of
@@ -644,26 +641,26 @@ static void enumerate_all(struct SolverScratch* s, int ncomp, bool* exact_ok,
 
 /* Build the mine-count distribution of all (modeled) fallback-component vars as
  * a Poisson-binomial over their naive per-var probabilities. Identity ([1.0])
- * when there are no fallback components. Result in s->dp.fbdist[0..fbdist_len).
+ * when there are no fallback components. Result in s->dp.fbdist.v[0..len).
  */
 static void build_fbdist(struct SolverScratch* s, int ncomp) {
-  s->dp.fbdist[0] = 1.0L;
-  s->dp.fbdist_len = 1;
+  s->dp.fbdist.v[0] = 1.0L;
+  s->dp.fbdist.len = 1;
+  struct Poly bern;
   for (int c = 0; c < ncomp; ++c) {
     if (!s->res.fallback[c]) {
       continue;
     }
     long double* fbp = res_fbp(s, c);
     for (int lv = 0; lv < s->res.nv[c]; ++lv) {
-      long double bern[2];
-      bern[0] = 1.0L - fbp[lv];
-      bern[1] = fbp[lv];
-      struct Poly r =
-          conv(poly(s->dp.fbdist, s->dp.fbdist_len), poly(bern, 2), s->dp.wall);
-      for (int i = 0; i < r.len; ++i) {
-        s->dp.fbdist[i] = r.v[i];
+      bern.v[0] = 1.0L - fbp[lv];
+      bern.v[1] = fbp[lv];
+      bern.len = 2;
+      conv(&s->dp.fbdist, &bern, &s->dp.wall);
+      for (int i = 0; i < s->dp.wall.len; ++i) {
+        s->dp.fbdist.v[i] = s->dp.wall.v[i];
       }
-      s->dp.fbdist_len = r.len;
+      s->dp.fbdist.len = s->dp.wall.len;
     }
   }
 }
@@ -700,32 +697,26 @@ static void compute_interior_prob(const struct Board* b,
   long double interior_num = 0.0L;
   if (ctx->exact_ok) {
     build_fbdist(s, ctx->ncomp);
-    s->dp.prefix[0][0] = 1.0L;
-    s->dp.prefix_len[0] = 1;
+    s->dp.prefix[0].v[0] = 1.0L;
+    s->dp.prefix[0].len = 1;
+    struct Poly shat;
     for (int e = 0; e < nexact; ++e) {
       int c = s->dp.exact_idx[e];
-      s->dp.prefix_len[e + 1] =
-          conv(poly(s->dp.prefix[e], s->dp.prefix_len[e]),
-               poly(res_shat(s, c), s->res.nv[c] + 1), s->dp.prefix[e + 1])
-              .len;
+      poly_set(&shat, res_shat(s, c), s->res.nv[c] + 1);
+      conv(&s->dp.prefix[e], &shat, &s->dp.prefix[e + 1]);
     }
-    s->dp.suffix[nexact][0] = 1.0L;
-    s->dp.suffix_len[nexact] = 1;
+    s->dp.suffix[nexact].v[0] = 1.0L;
+    s->dp.suffix[nexact].len = 1;
     for (int e = nexact - 1; e >= 0; --e) {
       int c = s->dp.exact_idx[e];
-      s->dp.suffix_len[e] =
-          conv(poly(res_shat(s, c), s->res.nv[c] + 1),
-               poly(s->dp.suffix[e + 1], s->dp.suffix_len[e + 1]),
-               s->dp.suffix[e])
-              .len;
+      poly_set(&shat, res_shat(s, c), s->res.nv[c] + 1);
+      conv(&shat, &s->dp.suffix[e + 1], &s->dp.suffix[e]);
     }
     /* Wall = (exact prefix) (x) fbdist = full frontier-mine distribution. */
-    struct Poly wall =
-        conv(poly(s->dp.prefix[nexact], s->dp.prefix_len[nexact]),
-             poly(s->dp.fbdist, s->dp.fbdist_len), s->dp.wall);
+    conv(&s->dp.prefix[nexact], &s->dp.fbdist, &s->dp.wall);
     /* zsum = sum_F Wall[F] * C(interior_n, r_eff - F) */
-    for (int f = 0; f < wall.len; ++f) {
-      long double w = s->dp.wall[f];
+    for (int f = 0; f < s->dp.wall.len; ++f) {
+      long double w = s->dp.wall.v[f];
       if (w == 0.0L) {
         continue;
       }
@@ -783,22 +774,20 @@ static void write_exact_marginals(struct Analysis* out, struct SolverScratch* s,
   for (int e = 0; e < ctx->nexact; ++e) {
     int c = s->dp.exact_idx[e];
     /* O_c = prefix[e] (x) suffix[e+1] */
-    struct Poly oc =
-        conv(poly(s->dp.prefix[e], s->dp.prefix_len[e]),
-             poly(s->dp.suffix[e + 1], s->dp.suffix_len[e + 1]), s->dp.oc);
+    conv(&s->dp.prefix[e], &s->dp.suffix[e + 1], &s->dp.oc);
     /* fold in the fallback distribution so c's complement covers ALL other
      * frontier mines (other exact comps + fallback comps). */
-    struct Poly oc2 = conv(oc, poly(s->dp.fbdist, s->dp.fbdist_len), s->dp.oc2);
-    int oc2len = oc2.len;
+    conv(&s->dp.oc, &s->dp.fbdist, &s->dp.oc2);
+    int oc2len = s->dp.oc2.len;
     /* A_c[k] = sum_t oc2[t] * C(interior_n, r_eff - k - t) */
     long double ac[MAX_COMP_VARS + 1];
     for (int k = 0; k <= s->res.nv[c]; ++k) {
       long double sm = 0.0L;
       for (int t = 0; t < oc2len; ++t) {
-        if (s->dp.oc2[t] == 0.0L) {
+        if (s->dp.oc2.v[t] == 0.0L) {
           continue;
         }
-        sm += s->dp.oc2[t] * binom_ld(ctx->interior_n, ctx->r_eff - k - t);
+        sm += s->dp.oc2.v[t] * binom_ld(ctx->interior_n, ctx->r_eff - k - t);
       }
       ac[k] = sm;
     }
