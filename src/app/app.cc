@@ -246,7 +246,7 @@ SDL_AppResult app_init(struct AppState** out, int argc, char** argv) {
     pio->IniFilename = NULL;
     ImGui_ImplSDL3_InitForSDLRenderer(s->panel_window, s->panel_renderer);
     ImGui_ImplSDLRenderer3_Init(s->panel_renderer);
-    ui_apply_theme();
+    ImGui::StyleColorsDark(); /* default ImGui dark, not the game chrome */
     ImGui::SetCurrentContext((ImGuiContext*)s->ctx_game);
     s->panel_on = true;
   }
