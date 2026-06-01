@@ -24,7 +24,7 @@ TEST(BenchPolicy, BaselineMatchesEngineBestAndIsCovered) {
   ASSERT_NE(a, nullptr);
   solver_analyze(&b, a, sc);
 
-  struct Move mv;
+  struct Pt mv;
   int rc = policy_select(POLICY_BASELINE, &b, a, &mv);
   ASSERT_EQ(rc, 0);
   EXPECT_EQ(mv.x, a->best.x);
@@ -48,7 +48,7 @@ TEST(BenchPolicy, ReturnsNegativeWhenNoBestMove) {
   a->best.x = -1;
   a->best.y = -1;
 
-  struct Move mv;
+  struct Pt mv;
   EXPECT_EQ(policy_select(POLICY_BASELINE, &b, a, &mv), -1);
 
   free(a);

@@ -12,12 +12,7 @@
 
 #include "minesweeper/game.h"  /* struct Board, game_index */
 #include "solver/engine.h"     /* struct Analysis */
-
-/* A covered cell to reveal. */
-struct Move {
-  int x;
-  int y;
-};
+#include "solver/geom.h"       /* struct Pt — the covered-cell coordinate */
 
 enum PolicyId {
   POLICY_INFOGAIN = 0,  /* min-prob + info-gain tie-break (paper's Inf(x)); default */
@@ -33,6 +28,6 @@ int policy_needs_infogain(int policy_id);
  * *out on success; returns -1 if no covered cell exists. Pure: reads b and a,
  * writes only *out. */
 int policy_select(int policy_id, const struct Board* b,
-                  const struct Analysis* a, struct Move* out);
+                  const struct Analysis* a, struct Pt* out);
 
 #endif /* SOLVER_BENCH_POLICY_H */

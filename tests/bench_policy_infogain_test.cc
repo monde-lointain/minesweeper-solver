@@ -72,7 +72,7 @@ TEST(PolicyInfogain, InfoGainOutranksCascade) {
   setgain(&a, &b, 1, 1, 1);
   setgain(&a, &b, 5, 1, 4);
 
-  struct Move mv;
+  struct Pt mv;
   ASSERT_EQ(policy_infogain_select(&b, &a, &mv), 0);
   EXPECT_EQ(mv.x, 5);
   EXPECT_EQ(mv.y, 1);
@@ -91,7 +91,7 @@ TEST(PolicyInfogain, MinRiskRespectedOverInfoGain) {
   setp(&a, &b, 3, 1, 0.5); /* higher risk but huge info_gain */
   setgain(&a, &b, 3, 1, 9);
 
-  struct Move mv;
+  struct Pt mv;
   ASSERT_EQ(policy_infogain_select(&b, &a, &mv), 0);
   EXPECT_EQ(mv.x, 1);
   EXPECT_EQ(mv.y, 1);
@@ -112,7 +112,7 @@ TEST(PolicyInfogain, CascadeBreaksInfoGainTie) {
   set_neighbors(&a, &b, 1, 1, 0.9); /* low cascade */
   set_neighbors(&a, &b, 5, 1, 0.5); /* higher cascade -> wins */
 
-  struct Move mv;
+  struct Pt mv;
   ASSERT_EQ(policy_infogain_select(&b, &a, &mv), 0);
   EXPECT_EQ(mv.x, 5);
   EXPECT_EQ(mv.y, 1);
@@ -129,7 +129,7 @@ TEST(PolicyInfogain, NeverForcedMine) {
   a.cells[mi].forced_mine = true;
   a.cells[mi].info_gain = 99;
 
-  struct Move mv;
+  struct Pt mv;
   ASSERT_EQ(policy_infogain_select(&b, &a, &mv), 0);
   int chosen = game_index(&b, mv.x, mv.y);
   EXPECT_NE(chosen, mi);
@@ -144,8 +144,8 @@ TEST(PolicyInfogain, Deterministic) {
   setgain(&a, &b, 2, 1, 3);
   setgain(&a, &b, 4, 2, 3);
 
-  struct Move m1;
-  struct Move m2;
+  struct Pt m1;
+  struct Pt m2;
   ASSERT_EQ(policy_infogain_select(&b, &a, &m1), 0);
   ASSERT_EQ(policy_infogain_select(&b, &a, &m2), 0);
   EXPECT_EQ(m1.x, m2.x);
@@ -162,7 +162,7 @@ TEST(PolicyInfogain, OpeningPinnedToEnginePick) {
   a.best.x = 0;
   a.best.y = 0;
 
-  struct Move mv;
+  struct Pt mv;
   ASSERT_EQ(policy_infogain_select(&b, &a, &mv), 0);
   EXPECT_EQ(mv.x, 0);
   EXPECT_EQ(mv.y, 0);

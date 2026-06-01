@@ -10,12 +10,6 @@
 #include "solver/recommend.h"
 
 int policy_infogain_select(const struct Board* b, const struct Analysis* a,
-                           struct Move* out) {
-  struct Pt p;
-  int rc = solver_recommend_move(b, a, &p);
-  if (rc == 0) {
-    out->x = p.x;
-    out->y = p.y;
-  }
-  return rc;
+                           struct Pt* out) {
+  return solver_recommend_move(b, a, out);
 }

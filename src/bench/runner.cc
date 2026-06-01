@@ -50,7 +50,7 @@ static void play_one(const struct BenchConfig* cfg, uint32_t seed,
     }
     metrics_record_analyze(out, now_ns() - t0);
 
-    struct Move mv;
+    struct Pt mv;
     if (policy_select(cfg->policy_id, &b, a, &mv) != 0) {
       break;
     }

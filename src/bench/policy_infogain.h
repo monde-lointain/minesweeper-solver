@@ -14,12 +14,12 @@
 #define SOLVER_BENCH_POLICY_INFOGAIN_H
 
 #include "minesweeper/game.h" /* struct Board */
-#include "policy.h"           /* struct Move */
 #include "solver/engine.h"    /* struct Analysis */
+#include "solver/geom.h"      /* struct Pt */
 
 /* Choose a covered cell to reveal. Returns 0 and writes *out on success; returns
  * -1 if no covered cell exists. Pure: reads b and a, writes only *out. */
 int policy_infogain_select(const struct Board* b, const struct Analysis* a,
-                           struct Move* out);
+                           struct Pt* out);
 
 #endif /* SOLVER_BENCH_POLICY_INFOGAIN_H */

@@ -15,7 +15,7 @@ int policy_needs_infogain(int policy_id) {
 }
 
 int policy_select(int policy_id, const struct Board* b,
-                  const struct Analysis* a, struct Move* out) {
+                  const struct Analysis* a, struct Pt* out) {
   if (policy_id == POLICY_INFOGAIN) {
     return policy_infogain_select(b, a, out);
   }
@@ -24,7 +24,6 @@ int policy_select(int policy_id, const struct Board* b,
   if (a->best.x < 0 || a->best.y < 0) {
     return -1; /* no covered cell (solved/terminal) */
   }
-  out->x = a->best.x;
-  out->y = a->best.y;
+  *out = a->best;
   return 0;
 }
