@@ -1,5 +1,6 @@
 /* engine_exact_test.cc — Analysis.exact: true when whole-board probabilities
- * are proven (no component fell back), false when any component is approximate. */
+ * are proven (no component fell back), false when any component is approximate.
+ */
 #include <gtest/gtest.h>
 #include <string.h>
 
@@ -12,7 +13,8 @@ namespace {
  * (even,0) and (odd,2). Every middle constraint stays loose (rem 2..3 over 4..6
  * unknowns) so single-point deduction resolves nothing — the whole covered set
  * is ONE undetermined component of 2*W vars. W=10 -> 20 vars (exact path);
- * W=40 -> 80 vars > MAX_COMP_VARS(64) -> fallback_component -> exact == false. */
+ * W=40 -> 80 vars > MAX_COMP_VARS(64) -> fallback_component -> exact == false.
+ */
 void mk_ambiguous_strip(struct Board* b, int W) {
   memset(b, 0, sizeof *b);
   b->width = W;

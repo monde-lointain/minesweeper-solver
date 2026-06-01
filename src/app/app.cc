@@ -436,8 +436,8 @@ static SDL_WindowID app_event_window(const SDL_Event* e) {
 
 SDL_AppResult app_event(struct AppState* s, SDL_Event* event) {
   SDL_WindowID wid = app_event_window(event);
-  bool is_panel = (s->panel_window != NULL &&
-                   wid == SDL_GetWindowID(s->panel_window));
+  bool is_panel =
+      (s->panel_window != NULL && wid == SDL_GetWindowID(s->panel_window));
 
   /* Feed the event to the context that owns the target window. */
   ImGui::SetCurrentContext(

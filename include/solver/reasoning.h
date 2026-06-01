@@ -40,10 +40,10 @@ struct ReasoningView {
   int hover_gain;
 };
 
-/* Fill `out` from the board + cached analysis. `hover_x/hover_y` are the covered
- * cell under the game cursor, or -1 if none. The recommended move equals
- * solver_recommend_move (same cell the overlay box highlights). Pure: reads
- * b and a, writes only out. */
+/* Fill `out` from the board + cached analysis. `hover_x/hover_y` are the
+ * covered cell under the game cursor, or -1 if none. The recommended move
+ * equals solver_recommend_move (same cell the overlay box highlights). Pure:
+ * reads b and a, writes only out. */
 void reasoning_build(const struct Board* b, const struct Analysis* a,
                      int hover_x, int hover_y, struct ReasoningView* out);
 
