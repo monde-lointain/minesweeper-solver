@@ -8,11 +8,19 @@
 #include "policy.h"
 
 #include "policy_heuristic.h"
+#include "policy_infogain.h"
+
+int policy_needs_infogain(int policy_id) {
+  return policy_id == POLICY_INFOGAIN ? 1 : 0;
+}
 
 int policy_select(int policy_id, const struct Board* b,
                   const struct Analysis* a, struct Move* out) {
   if (policy_id == POLICY_HEURISTIC) {
     return policy_heuristic_select(b, a, out);
+  }
+  if (policy_id == POLICY_INFOGAIN) {
+    return policy_infogain_select(b, a, out);
   }
   /* POLICY_BASELINE: forward the engine's precomputed min-prob pick. */
   (void)b;

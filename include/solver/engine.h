@@ -26,6 +26,12 @@ struct CellAnalysis {
   bool is_frontier; /* covered, adjacent to a revealed number (flags ignored) */
   bool forced_safe; /* proven safe (prob 0 by deduction) */
   bool forced_mine; /* proven mine */
+  /* Info gain (paper's Inf(x)): # OTHER frontier cells that become provably
+   * safe or provably mine if this cell is assumed safe. Pure constraint
+   * propagation (never reads the hidden number). Populated by
+   * solver_analyze_infogain only at EVAL_GUESS, for non-forced frontier cells in
+   * an exact (non-fallback) component; 0 otherwise. */
+  int info_gain;
 };
 
 /* Whole-board analysis. cells[] indexed via game_index. */
@@ -50,5 +56,13 @@ void solver_scratch_destroy(struct SolverScratch* s); /* free; NULL-safe */
  * function of `b` (writes only `out` and `s`). `s` must be non-NULL. */
 void solver_analyze(const struct Board* b, struct Analysis* out,
                     struct SolverScratch* s);
+
+/* As solver_analyze, then (only when the verdict is EVAL_GUESS) also fill
+ * out->cells[].info_gain for every non-forced frontier cell in an exact
+ * component — the paper's Inf(x): how many OTHER cells become provably safe or
+ * mine if this cell is assumed safe (pure constraint propagation, no hidden
+ * info). Separate entry point so the plain solver_analyze path pays nothing. */
+void solver_analyze_infogain(const struct Board* b, struct Analysis* out,
+                             struct SolverScratch* s);
 
 #endif /* SOLVER_ENGINE_H */

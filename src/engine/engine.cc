@@ -1246,3 +1246,164 @@ void solver_analyze(const struct Board* b, struct Analysis* out,
   write_cell_probs(b, out, s, &ctx);
   pick_best_move(b, out, &ctx);
 }
+
+/* ---- info gain (paper's Inf(x)) -------------------------------------------
+ *
+ * For a candidate cell, how many OTHER frontier cells become provably safe or
+ * mine if the candidate is assumed safe. Re-enumerate the candidate's component
+ * with the candidate excluded (== pinned to 0) and count variables that become
+ * invariable (restricted marginal in {0,1}) and were not invariable before.
+ *
+ * The pinned re-solve reuses the same direct/reduced dispatch as
+ * enumerate_component but writes only the transient ec/rd scratch, so
+ * s->res/s->cm/s->comp stay intact and this is safe to call once per candidate.
+ * Soundness: a variable fixed in every local solution (candidate pinned) is
+ * fixed in every global solution (the per-component Fix-A argument), so each
+ * counted cell is a real future deduction. Returns 0 on overflow / infeasible /
+ * a degenerate component. */
+static int component_infogain(struct SolverScratch* s, int comp, int pin_var) {
+  int nv_full = s->res.nv[comp];
+  int pin_local = s->comp.local_of_var[pin_var];
+  int ec_of_orig[MAX_COMP_VARS]; /* original local -> ec local (-1 for pin) */
+  int ec2orig[MAX_COMP_VARS];    /* ec local -> original local */
+  int m = 0;
+  for (int ol = 0; ol < nv_full; ++ol) {
+    if (ol == pin_local) {
+      ec_of_orig[ol] = -1;
+      continue;
+    }
+    ec_of_orig[ol] = m;
+    ec2orig[m] = ol;
+    ++m;
+  }
+  if (m == 0) {
+    return 0;
+  }
+  /* Build the local model over the component's unknown vars, excluding pin. */
+  s->ec.nv = m;
+  s->ec.ncon = 0;
+  for (int lv = 0; lv < m; ++lv) {
+    s->ec.varcon_n[lv] = 0;
+  }
+  for (int ci = 0; ci < s->cm.ncon; ++ci) {
+    int first_unknown = -1;
+    for (int j = 0; j < s->cm.con_nv[ci]; ++j) {
+      int v = s->cm.con_var[ci][j];
+      if (s->cm.vstate[v] == VAR_UNKNOWN) {
+        first_unknown = v;
+        break;
+      }
+    }
+    if (first_unknown < 0 || s->comp.of_var[first_unknown] != comp) {
+      continue;
+    }
+    int fixed_mines = 0;
+    int nlv = 0;
+    for (int j = 0; j < s->cm.con_nv[ci]; ++j) {
+      int v = s->cm.con_var[ci][j];
+      if (s->cm.vstate[v] == VAR_MINE) {
+        ++fixed_mines;
+      } else if (s->cm.vstate[v] == VAR_UNKNOWN && v != pin_var) {
+        int lv = ec_of_orig[s->comp.local_of_var[v]];
+        s->ec.con_lv[s->ec.ncon][nlv] = lv;
+        s->ec.varcon[lv][s->ec.varcon_n[lv]++] = s->ec.ncon;
+        ++nlv;
+      }
+    }
+    int need = s->cm.con_need[ci] - fixed_mines; /* pin (=0) adds no mines */
+    if (nlv == 0) {
+      if (need != 0) {
+        return 0; /* pinning the candidate safe is infeasible here */
+      }
+      continue; /* redundant 0 = 0 row */
+    }
+    s->ec.con_nlv[s->ec.ncon] = nlv;
+    s->ec.con_need[s->ec.ncon] = need;
+    ++s->ec.ncon;
+  }
+  for (int k = 0; k <= m; ++k) {
+    s->ec.sol[k] = 0.0L;
+  }
+  for (int lv = 0; lv < m; ++lv) {
+    for (int k = 0; k <= m; ++k) {
+      s->ec.mine[lv][k] = 0.0L;
+    }
+  }
+  for (int cj = 0; cj < s->ec.ncon; ++cj) {
+    s->ec.con_sum[cj] = 0;
+    s->ec.con_un[cj] = s->ec.con_nlv[cj];
+  }
+  if (m > CAP_VARS) {
+    if (!enumerate_reduced(s)) {
+      return 0;
+    }
+  } else {
+    s->ec.nodes = 0;
+    s->ec.overflow = false;
+    enum_dfs(s, 0, 0);
+    if (s->ec.overflow) {
+      return 0;
+    }
+  }
+  long double total = 0.0L;
+  for (int k = 0; k <= m; ++k) {
+    total += s->ec.sol[k];
+  }
+  if (total <= 0.0L) {
+    return 0;
+  }
+  int gain = 0;
+  for (int lv = 0; lv < m; ++lv) {
+    long double rm = 0.0L;
+    for (int k = 0; k <= m; ++k) {
+      rm += s->ec.mine[lv][k];
+    }
+    rm /= total;
+    bool restr_inv = rm < EPS || rm > 1.0L - EPS;
+    if (!restr_inv) {
+      continue; /* still uncertain after the guess */
+    }
+    long double* mh = res_mhat(s, comp, ec2orig[lv]);
+    long double om = 0.0L;
+    for (int k = 0; k <= nv_full; ++k) {
+      om += mh[k];
+    }
+    bool orig_inv = om < EPS || om > 1.0L - EPS;
+    if (!orig_inv) {
+      ++gain; /* newly forced by assuming the candidate safe */
+    }
+  }
+  return gain;
+}
+
+/* Fill info_gain for every non-forced frontier cell in an exact component.
+ * Called only at EVAL_GUESS; clobbers only the transient ec/rd scratch. */
+static void compute_infogain(const struct Board* b, struct Analysis* out,
+                             struct SolverScratch* s) {
+  int ncells = b->width * b->height;
+  for (int i = 0; i < ncells; ++i) {
+    if (b->cells[i].revealed) {
+      continue;
+    }
+    if (!out->cells[i].is_frontier || out->cells[i].forced_mine) {
+      continue;
+    }
+    int v = s->cm.var_of_cell[i];
+    if (v < 0 || s->cm.vstate[v] != VAR_UNKNOWN) {
+      continue;
+    }
+    int comp = s->comp.of_var[v];
+    if (comp < 0 || s->res.fallback[comp]) {
+      continue; /* no exact local solution set: no reliable info gain */
+    }
+    out->cells[i].info_gain = component_infogain(s, comp, v);
+  }
+}
+
+void solver_analyze_infogain(const struct Board* b, struct Analysis* out,
+                             struct SolverScratch* s) {
+  solver_analyze(b, out, s);
+  if (out->eval == EVAL_GUESS) {
+    compute_infogain(b, out, s);
+  }
+}

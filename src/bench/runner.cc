@@ -40,9 +40,14 @@ static void play_one(const struct BenchConfig* cfg, uint32_t seed,
   rng.seed = seed;
   game_reset(&b, cfg->width, cfg->height, cfg->mines, &rng);
 
+  int want_infogain = policy_needs_infogain(cfg->policy_id);
   while (b.status == GAME_READY || b.status == GAME_PLAYING) {
     uint64_t t0 = now_ns();
-    solver_analyze(&b, a, sc);
+    if (want_infogain) {
+      solver_analyze_infogain(&b, a, sc);
+    } else {
+      solver_analyze(&b, a, sc);
+    }
     metrics_record_analyze(out, now_ns() - t0);
 
     struct Move mv;

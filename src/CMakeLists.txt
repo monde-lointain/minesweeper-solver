@@ -88,6 +88,7 @@ target_compile_options(game_core PRIVATE -Wall -Wextra)
 add_library(bench_lib STATIC
   bench/policy.cc
   bench/policy_heuristic.cc
+  bench/policy_infogain.cc
   bench/metrics.cc
   bench/runner.cc
   bench/args.cc

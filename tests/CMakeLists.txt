@@ -29,6 +29,11 @@ target_include_directories(engine_reduction_test
   PRIVATE ${PROJECT_SOURCE_DIR}/src/engine)
 gtest_discover_tests(engine_reduction_test)
 
+# Info-gain (paper's Inf(x)) vs an independent brute-force reference.
+add_executable(engine_infogain_test engine_infogain_test.cc)
+target_link_libraries(engine_infogain_test PRIVATE solver_lib gtest_main)
+gtest_discover_tests(engine_infogain_test)
+
 # Benchmark harness tests. Each links bench_lib (which PUBLIC-propagates the
 # bench include dir + solver_lib/game_core). Per-module surfaces keep ownership
 # file-disjoint across streams; bench_test is the cross-module integration gate.
@@ -39,6 +44,10 @@ gtest_discover_tests(bench_policy_test)
 add_executable(bench_policy_heuristic_test bench_policy_heuristic_test.cc)
 target_link_libraries(bench_policy_heuristic_test PRIVATE bench_lib gtest_main)
 gtest_discover_tests(bench_policy_heuristic_test)
+
+add_executable(bench_policy_infogain_test bench_policy_infogain_test.cc)
+target_link_libraries(bench_policy_infogain_test PRIVATE bench_lib gtest_main)
+gtest_discover_tests(bench_policy_infogain_test)
 
 add_executable(bench_metrics_test bench_metrics_test.cc)
 target_link_libraries(bench_metrics_test PRIVATE bench_lib gtest_main)
