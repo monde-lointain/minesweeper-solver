@@ -135,5 +135,12 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTS)
   # dynamic /MD runtime, so force the shared CRT to avoid LNK2038 when the
   # SDL-free test exes link gtest.
   set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+  # SDL3's configure leaves BUILD_SHARED_LIBS=ON in the cache; gtest's
+  # add_library() honors it and would build gtest.dll / gtest_main.dll. On
+  # Windows those land in _deps/ (not beside the test exes), so the SDL-free
+  # test exes fail gtest_discover_tests at build time with 0xc0000135
+  # (STATUS_DLL_NOT_FOUND). Shadow BUILD_SHARED_LIBS for the gtest subtree so
+  # gtest links statically; our own libs are already explicit STATIC.
+  set(BUILD_SHARED_LIBS OFF)
   FetchContent_MakeAvailable(googletest)
 endif()
