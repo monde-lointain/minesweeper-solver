@@ -237,6 +237,12 @@ SDL_AppResult app_init(struct AppState** out, int argc, char** argv) {
    * content) so it never double-stalls the game's vsync. */
   s->panel_window = SDL_CreateWindow("Solver - Reasoning", 300, 380, 0);
   if (s->panel_window != NULL) {
+    /* Parent the companion to the game window so the compositor keeps it
+     * stacked above (xdg_toplevel.set_parent on Wayland / WM_TRANSIENT_FOR on
+     * X11). Self-raise (SDL_RaiseWindow) is ignored by Wayland compositors
+     * without a focus serial, so a parent relationship is the reliable way to
+     * keep the companion in front rather than behind the game. */
+    SDL_SetWindowParent(s->panel_window, s->window);
     s->panel_renderer = SDL_CreateRenderer(s->panel_window, NULL);
   }
   if (s->panel_renderer != NULL) {
