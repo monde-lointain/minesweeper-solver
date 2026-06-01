@@ -6,19 +6,16 @@
  * on the hot path. Slots merge commutatively after join, so the aggregate is
  * identical for any thread count.
  *
- * Orthodox C++ with a sanctioned, file-local exception: std::thread /
- * std::atomic for the worker pool (CLAUDE.md threading carve-out). No other
- * Modern C++.
+ * Orthodox C++ with sanctioned, file-local exceptions: std::thread /
+ * std::atomic for the worker pool (CLAUDE.md threading carve-out) and
+ * std::chrono::steady_clock for portable monotonic timing.
  */
 #include "runner.h"
 
 #include <stdlib.h>
-#include <time.h>
-#ifdef _WIN32
-#include <windows.h>
-#endif
 
 #include <atomic>
+#include <chrono>
 #include <thread>
 
 #include "minesweeper/game.h"
@@ -26,22 +23,12 @@
 
 enum { BENCH_MAX_THREADS = 256, BENCH_CHUNK = 128 };
 
-#ifdef _WIN32
+/* Monotonic elapsed-time source in nanoseconds. */
 static uint64_t now_ns(void) {
-  LARGE_INTEGER c, f;
-  QueryPerformanceCounter(&c);
-  QueryPerformanceFrequency(&f);
-  uint64_t whole = (uint64_t)c.QuadPart / (uint64_t)f.QuadPart;
-  uint64_t rem   = (uint64_t)c.QuadPart % (uint64_t)f.QuadPart;
-  return whole * 1000000000ULL + (rem * 1000000000ULL) / (uint64_t)f.QuadPart;
+  return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
 }
-#else
-static uint64_t now_ns(void) {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
-}
-#endif
 
 /* Play one seeded game into `out`, reusing scratch `sc` and analysis `a`. */
 static void play_one(const struct BenchConfig* cfg, uint32_t seed,

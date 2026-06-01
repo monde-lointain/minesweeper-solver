@@ -3,29 +3,21 @@
  * engine correctness defect the harness is designed to catch).
  */
 #include <stdio.h>
-#include <time.h>
-#ifdef _WIN32
-#include <windows.h>
-#endif
+
+#include <chrono>
 
 #include "args.h"
 #include "metrics.h"
 #include "runner.h"
 
-#ifdef _WIN32
+/* Monotonic elapsed-time source in seconds. std::chrono::steady_clock is a
+ * sanctioned Modern-C++ carve-out: the only portable monotonic source
+ * (clock_gettime is POSIX-only, QueryPerformanceCounter is Win32-only). */
 static double wall_now(void) {
-  LARGE_INTEGER c, f;
-  QueryPerformanceCounter(&c);
-  QueryPerformanceFrequency(&f);
-  return (double)c.QuadPart / (double)f.QuadPart;
+  return std::chrono::duration<double>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
 }
-#else
-static double wall_now(void) {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
-}
-#endif
 
 int main(int argc, char** argv) {
   struct BenchConfig cfg;
