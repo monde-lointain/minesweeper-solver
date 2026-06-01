@@ -10,6 +10,7 @@
 
 #include "minesweeper/types.h" /* BOARD_MIN_W .. BOARD_MAX_H, enum Difficulty */
 #include "solver/difficulty.h"
+#include "solver/util.h" /* solver_clampi */
 
 static int parse_u64(const char* s, uint64_t* out) {
   char* end = NULL;
@@ -49,16 +50,6 @@ static int set_preset(struct BenchConfig* cfg, const char* name) {
   difficulty_preset_dims(diff, &cfg->width, &cfg->height, &cfg->mines);
   strcpy(cfg->label, difficulty_preset_name(diff));
   return 0;
-}
-
-static int clampi(int v, int lo, int hi) {
-  if (v < lo) {
-    return lo;
-  }
-  if (v > hi) {
-    return hi;
-  }
-  return v;
 }
 
 int bench_parse_args(int argc, char** argv, struct BenchConfig* cfg,
@@ -155,8 +146,8 @@ int bench_parse_args(int argc, char** argv, struct BenchConfig* cfg,
       *errmsg = "custom board requires --width --height --mines together";
       return -1;
     }
-    cw = clampi(cw, BOARD_MIN_W, BOARD_MAX_W);
-    ch = clampi(ch, BOARD_MIN_H, BOARD_MAX_H);
+    cw = solver_clampi(cw, BOARD_MIN_W, BOARD_MAX_W);
+    ch = solver_clampi(ch, BOARD_MIN_H, BOARD_MAX_H);
     if (cm < 1 || cm >= cw * ch) {
       *errmsg = "--mines out of range (1 .. width*height-1)";
       return -1;

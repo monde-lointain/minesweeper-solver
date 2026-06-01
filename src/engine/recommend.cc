@@ -62,6 +62,20 @@ static double progress_score(const struct Board* b, const struct Analysis* a,
          RECOMMEND_W_CASCADE * cascade;
 }
 
+double solver_min_risk(const struct Board* b, const struct Analysis* a) {
+  double pmin = 2.0;
+  for (int i = 0; i < b->width * b->height; ++i) {
+    if (b->cells[i].revealed || a->cells[i].forced_mine) {
+      continue;
+    }
+    double p = a->cells[i].mine_prob;
+    if (p < pmin) {
+      pmin = p;
+    }
+  }
+  return pmin;
+}
+
 int solver_recommend_move(const struct Board* b, const struct Analysis* a,
                           int* out_x, int* out_y) {
   if (a->best_x < 0 || a->best_y < 0) {
@@ -75,16 +89,7 @@ int solver_recommend_move(const struct Board* b, const struct Analysis* a,
   }
 
   /* Pass 1: minimum risk over covered, non-proven-mine cells. */
-  double pmin = 2.0;
-  for (int i = 0; i < b->width * b->height; ++i) {
-    if (b->cells[i].revealed || a->cells[i].forced_mine) {
-      continue;
-    }
-    double p = a->cells[i].mine_prob;
-    if (p < pmin) {
-      pmin = p;
-    }
-  }
+  double pmin = solver_min_risk(b, a);
 
   /* Pass 2: among cells within the band of pmin, lexicographic
    * (info_gain, progress), row-major first on ties. The band is suppressed at

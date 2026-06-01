@@ -53,16 +53,7 @@ void reasoning_build(const struct Board* b, const struct Analysis* a,
     }
     out->pick_gain = a->cells[idx].info_gain;
 
-    double pmin = 2.0;
-    for (int i = 0; i < n; ++i) {
-      if (b->cells[i].revealed || a->cells[i].forced_mine) {
-        continue;
-      }
-      double p = a->cells[i].mine_prob;
-      if (p < pmin) {
-        pmin = p;
-      }
-    }
+    double pmin = solver_min_risk(b, a);
     out->safest_pct = (pmin <= 1.0) ? reasoning_pct(pmin) : 0;
     out->took_riskier = (a->cells[idx].mine_prob > pmin + 1e-9);
   }

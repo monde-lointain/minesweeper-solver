@@ -21,4 +21,9 @@
 int solver_recommend_move(const struct Board* b, const struct Analysis* a,
                           int* out_x, int* out_y);
 
+/* Minimum P(mine) over covered, non-forced_mine cells; 2.0 if none exist. The
+ * shared min-risk used both as solver_recommend_move's band anchor and as the
+ * reasoning panel's "safest" readout, so the two can never disagree. Pure. */
+double solver_min_risk(const struct Board* b, const struct Analysis* a);
+
 #endif /* SOLVER_RECOMMEND_H */
