@@ -990,11 +990,18 @@ static void pick_best_move(const struct Board* b, struct Analysis* out,
         continue;
       }
       double p = out->cells[i].mine_prob;
+      /* Crossing EPS means a genuine combinatorial proof (clamp_approx_probs
+       * keeps approximate cells >=1e-6 from {0,1}), so the true prob is exactly
+       * 0/1; snap off the double-accumulation FP drift (e.g. macOS FMA leaves a
+       * forced mine at 0.99999999999999933). Leave local p for best-tracking.
+       */
       if ((ereal)p < EPS) {
         out->cells[i].forced_safe = true;
+        out->cells[i].mine_prob = 0.0;
       }
       if ((ereal)p > 1.0 - EPS) {
         out->cells[i].forced_mine = true;
+        out->cells[i].mine_prob = 1.0;
       }
       if (p < best) {
         best = p;
