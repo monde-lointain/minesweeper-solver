@@ -14,13 +14,14 @@
 
 enum {
   MAXCELL = BOARD_MAX_CELLS,
-  CAP_VARS = 24,      /* direct-enumeration cap (unchanged path) */
-  MAX_COMP_VARS = 64, /* Gaussian-reduction exact-solve cap (storage) */
-  MAXCOMP = 128,      /* exact-DP component cap */
-  MAXFLEN = 256,      /* exact-DP total-frontier-mine cap + 1 */
-  MAXVARCON = 8,      /* a covered cell borders <= 8 numbered cells */
-  MAX_RED_ROWS = 128, /* constraint rows in the reduction matrix */
-  FREE_CAP = 28,      /* max free vars after RREF (search feasibility) */
+  CAP_VARS = 24,       /* direct-enumeration cap (unchanged path) */
+  MAX_COMP_VARS = 128, /* Gaussian-reduction exact-solve cap (storage); sized
+                        * from a 100x100/2500 measurement (max comp seen 102) */
+  MAXCOMP = 128,       /* exact-DP component cap (max seen 44; ample) */
+  MAXFLEN = 1024,      /* exact-DP total-frontier-mine cap + 1 (max seen 500) */
+  MAXVARCON = 8,       /* a covered cell borders <= 8 numbered cells */
+  MAX_RED_ROWS = 256,  /* constraint rows in the reduction matrix */
+  FREE_CAP = 28,       /* max free vars after RREF (search feasibility) */
   /* compact ragged result storage: total exact var-slots bounded by Sigma nv_c
    * <= MAXCELL; total mhat slots by Sigma nv_c*(nv_c+1) <= MAXCELL*(MCV+1). */
   MHAT_FLAT_MAX = MAXCELL * (MAX_COMP_VARS + 1),

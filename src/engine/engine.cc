@@ -899,7 +899,11 @@ static void write_exact_marginals(struct Analysis* out, struct SolverScratch* s,
 /* fallback components: naive probs directly */
 static void write_fallback_probs(struct Analysis* out, struct SolverScratch* s,
                                  const struct AnalyzeCtx* ctx) {
-  for (int c = 0; c < ctx->ncomp; ++c) {
+  /* res.* is sized [MAXCOMP]; when !exact_ok this loop runs with ncomp possibly
+   * > MAXCOMP (the crude path), so clamp to avoid an out-of-bounds read. The
+   * over-cap components keep their write_baseline_probs values. */
+  int cn = ctx->ncomp < MAXCOMP ? ctx->ncomp : MAXCOMP;
+  for (int c = 0; c < cn; ++c) {
     if (!ctx->exact_ok || s->res.fallback[c]) {
       int* gv = res_gv(s, c);
       ereal* fbp = res_fbp(s, c);
@@ -1048,9 +1052,12 @@ void solver_analyze(const struct Board* b, struct Analysis* out,
   write_cell_probs(b, out, s, &ctx);
   pick_best_move(b, out, &ctx);
 
-  /* exact iff the DP ran exactly AND no component used the naive fallback. */
+  /* exact iff the DP ran exactly AND no component used the naive fallback.
+   * res.fallback is sized [MAXCOMP]; clamp since ncomp may exceed it when
+   * !exact_ok (in which case out->exact is false regardless). */
   bool any_fb = false;
-  for (int c = 0; c < ctx.ncomp; ++c) {
+  int fbn = ctx.ncomp < MAXCOMP ? ctx.ncomp : MAXCOMP;
+  for (int c = 0; c < fbn; ++c) {
     if (s->res.fallback[c]) {
       any_fb = true;
       break;
