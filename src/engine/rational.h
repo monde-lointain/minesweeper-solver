@@ -352,6 +352,28 @@ static inline struct Rat rat_norm(RatI128 num, RatI128 den) {
     num = i128_neg(num);
     den = i128_neg(den);
   }
+  /* Fast path: both operands already fit int64 (the common case -- RREF
+   * residuals of small {0,1} systems). Reduce via a native 64-bit Euclidean
+   * gcd: a single hardware div per step on x86-64 (clang and MSVC), so no
+   * __modti3 and no intrinsics. The 128-bit gcd below handles overflow
+   * operands. Byte-identical to the slow path (gcd unique, /1 a no-op). */
+  if (i128_fits_i64(num) && i128_fits_i64(den)) {
+    int64_t n = i128_to_i64(num);
+    int64_t d = i128_to_i64(den); /* d > 0 (sign moved to num above) */
+    /* |n| as unsigned; 0u - (uint64_t)n is correct even for INT64_MIN */
+    uint64_t ga = n < 0 ? 0u - (uint64_t)n : (uint64_t)n;
+    uint64_t gb = (uint64_t)d;
+    while (ga != 0u) {
+      uint64_t t = gb % ga;
+      gb = ga;
+      ga = t;
+    }
+    /* gb = gcd(|n|, d) >= 1; both divisions are exact and in range */
+    struct Rat r;
+    r.num = n / (int64_t)gb;
+    r.den = d / (int64_t)gb;
+    return r;
+  }
   /* gcd via Euclidean algorithm */
   RatI128 a = i128_abs(num);
   RatI128 b = den;
