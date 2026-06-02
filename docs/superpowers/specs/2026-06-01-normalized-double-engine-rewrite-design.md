@@ -226,9 +226,40 @@ Acceptable for the overlay (1–2 scratches) and the threaded bench
   `MAXCOMP = 128` (unchanged).
 - Search budgets unchanged.
 
-## Unresolved questions
+## Validation results (executed 2026-06-01)
 
-1. `MAX_COMP_VARS=128` final vs falling back to 96 — deferred to the Stage B
-   time-validation gate (empirical).
-2. Whether the overlay's "exact" readout copy needs wording tweaks now that
-   `exact=true` is common at large sizes (cosmetic; out of engine scope).
+Implemented on branch `engine-normalized-double`. All 71 tests green.
+
+**Stage A — core (binomial table + `double`):**
+- `engine_test`/`engine_reduction_test`/`engine_exact_test`/`engine_infogain_test`
+  pass unmodified. `golden_test` passes **unmodified at tol 1e-9** (no rebaseline
+  needed; integer fields identical) — the normalized-`double` engine reproduces
+  the long-double baseline within tolerance.
+- New `engine_largeN_test`: conservation (ΣP = mines, exact) and
+  ld-with-table vs double-with-table agreement (≤1e-9) both hold at
+  `interior_n`≈9990 where raw `C(9990,2500)`≈1e2900 overflows double. Closes the
+  no-oracle-at-scale gap.
+- Hotspot eliminated: profiler at 100×100/2500 — cap-600 3.62s→**0.06s (60×)**;
+  full game 180s→12s; runs deep with no `nan`/`inf` (old `double`-naive died at
+  move 1).
+
+**Stage B — caps:**
+- **Time gate PASS:** 54,842 single-thread analyze samples — p50 1.12ms, **p99
+  22.78ms** (≤50), **max 49.49ms** (≤250), mean 4.32ms. No RREF heavy tail;
+  `MAX_COMP_VARS=128` kept (no fallback to 96).
+- **Value gate PASS (decisive):** 200 games each, 100×100/2500 infogain. Win-rate
+  0/200 both (board is effectively unwinnable — wrong metric here), but Stage B:
+  mean loss depth 0.1024→**0.1910** (+86%), guess survival 0.8086→**0.8684**,
+  safe deductions 92.8k→**178.9k**, and the critical low-risk calibration bucket
+  `[0,0.05)` went **pred 0.020 / empirical 0.380 (badly overconfident) → pred
+  0.035 / empirical 0.032 (calibrated)**. The old caps' crude approximation
+  mispriced near-safe cells and walked the policy into mines; exact coverage
+  fixes it. Bench batch is ~5.5× slower (more exact work + deeper games) —
+  acceptable for a dev tool; the overlay is one analyze/move at ≤50ms.
+
+## Resolved / remaining questions
+
+1. ~~`MAX_COMP_VARS=128` vs 96~~ — **128**, confirmed by the time gate.
+2. ~~Whether Stage B ships~~ — **yes**, confirmed by the value gate.
+3. Overlay "exact" readout copy now that `exact=true` is common at large sizes
+   (cosmetic; out of engine scope) — still open, deferred to overlay work.
