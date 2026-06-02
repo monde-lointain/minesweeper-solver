@@ -135,3 +135,28 @@ if(orthodoxy_plugin_FOUND)
   target_link_libraries(bench_lib PRIVATE orthodoxy::plugin)
   target_link_libraries(minesweeper_bench PRIVATE orthodoxy::plugin)
 endif()
+
+# ---------------------------------------------------------------------------
+# Profiling runner. A tiny SDL-free main() that replays the pathological run
+# (100x100, 2500 mines, seed 7, info-gain) bounded by a move cap — the dedicated
+# target we point valgrind/callgrind at (see `make profile`). Links the same
+# pure libs as the bench, no threads.
+# ---------------------------------------------------------------------------
+add_executable(minesweeper_profiler profiler/main.cc)
+target_include_directories(minesweeper_profiler PRIVATE
+  ${PROJECT_SOURCE_DIR}/include
+  ${MINESWEEPER_DIR}/include
+)
+target_link_libraries(minesweeper_profiler PRIVATE solver_lib game_core)
+target_compile_options(minesweeper_profiler PRIVATE ${SOLVER_WARNINGS})
+
+set_target_properties(minesweeper_profiler PROPERTIES
+  COMPILE_WARNING_AS_ERROR ${MINESWEEPER_SOLVER_WERROR})
+
+if(MSVC)
+  target_compile_definitions(minesweeper_profiler PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+
+if(orthodoxy_plugin_FOUND)
+  target_link_libraries(minesweeper_profiler PRIVATE orthodoxy::plugin)
+endif()

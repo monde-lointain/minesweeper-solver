@@ -1,0 +1,8 @@
+# callgrind raw outputs + symlinks
+callgrind.out.*
+
+# generated annotation/summary reports
+reports/
+
+*.tmp
+*.log
