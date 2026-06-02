@@ -36,10 +36,25 @@ void overlay_draw(const struct Analysis* a, const struct Board* b,
   int cell = BLOCK_PX * lay->scale;
   struct OverlayRect r =
       overlay_cell_rect(lay->grid_x, lay->grid_y, cell, rec.x, rec.y);
-  ImVec2 p0((float)(r.x + 1), (float)(r.y + 1));
-  ImVec2 p1((float)((r.x + r.w) - 1), (float)((r.y + r.h) - 1));
-  float thickness = (float)lay->scale + 1.0f;
-  dl->AddRect(p0, p1, IM_COL32(21, 101, 192, 255), 0.0f, 0, thickness);
+  /* Crisp, pixel-aligned outline: four filled integer-pixel bars (like
+   * render.cc's bevels). A probe of this machine confirmed SDL makes the
+   * process per-monitor-DPI-aware, so the renderer draws 1 logical unit = 1
+   * physical pixel on BOTH the 100% and the 150% display (PixelDensity = 1,
+   * RenderScale = 1, ImGui FramebufferScale = 1) -- there is no fractional
+   * transform, so integer rects are exact on both. The box's OUTER edge sits
+   * exactly on the cell border (inset 0) and the thickness grows inward, so it
+   * traces each square; thickness is scaled. Avoids AddRect's anti-aliased
+   * centered stroke, whose even thickness (scale+1 is even at odd scales)
+   * straddles half-pixels and renders fuzzy. */
+  int t = lay->scale + 1; /* border thickness, scaled */
+  struct OverlayRect e[4];
+  overlay_box_edges(r, 0, t, e);
+  ImU32 box = IM_COL32(21, 101, 192, 255);
+  for (int i = 0; i < 4; ++i) {
+    dl->AddRectFilled(
+        ImVec2((float)e[i].x, (float)e[i].y),
+        ImVec2((float)(e[i].x + e[i].w), (float)(e[i].y + e[i].h)), box);
+  }
 
   /* Proven-cell markers: certainties (not a risk gradient), so they explain the
    * pick rather than competing with it. Geometry only -> scales 1x-4x. Green =
