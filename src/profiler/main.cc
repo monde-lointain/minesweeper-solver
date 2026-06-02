@@ -27,9 +27,10 @@ enum {
   PROF_H = 100,
   PROF_MINES = 2500,
   PROF_SEED = 7,
-  /* Tuned so `make profile` runs ~3 min under callgrind; override via argv[1]
-   * (<=0 plays the full game). */
-  PROF_DEFAULT_MAX_MOVES = 500
+  /* Tuned so `make profile` runs ~9 min under callgrind (~72x native; deep
+   * enough to reach the reduction-heavy regime that dominates per-move cost).
+   * Override via argv[1] (<=0 plays the full game, ~1h under callgrind). */
+  PROF_DEFAULT_MAX_MOVES = 2000
 };
 
 int main(int argc, char** argv) {

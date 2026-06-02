@@ -86,7 +86,7 @@ profile: profile-build
 	@echo "callgrind run (timestamp $(TS))..."
 	valgrind --tool=callgrind \
 		--callgrind-out-file=$(PROFILING_DIR)/callgrind.out.minesweeper.$(TS) \
-		--dump-instr=yes --compress-pos=no --compress-strings=no \
+		--dump-instr=no --compress-pos=no --compress-strings=no \
 		$(PROFILE_BUILD_DIR)/src/minesweeper_profiler
 	@ln -sf callgrind.out.minesweeper.$(TS) $(PROFILING_DIR)/callgrind.out.minesweeper
 	@echo "wrote $(PROFILING_DIR)/callgrind.out.minesweeper.$(TS)"
