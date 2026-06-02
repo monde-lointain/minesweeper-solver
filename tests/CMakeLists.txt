@@ -40,6 +40,33 @@ add_executable(engine_largeN_test engine_largeN_test.cc)
 target_link_libraries(engine_largeN_test PRIVATE solver_lib_ld solver_lib gtest_main)
 gtest_discover_tests(engine_largeN_test)
 
+# Emulated-128-bit parity (MSVC path coverage). The production engine uses the
+# native __int128; MSVC falls back to the two-limb software RatI128 (rational.h,
+# RAT_FORCE_EMULATED_I128), which CI otherwise never compiles. solver_lib_emu
+# recompiles the SAME engine sources with that emulation forced and its public
+# symbols renamed `_emu`, so the native and emulated engines link into one exe
+# and engine_emulated_test asserts they produce identical marginals.
+add_library(solver_lib_emu STATIC
+  ${PROJECT_SOURCE_DIR}/src/engine/engine.cc
+  ${PROJECT_SOURCE_DIR}/src/engine/engine_reduce.cc)
+target_include_directories(solver_lib_emu PRIVATE
+  ${PROJECT_SOURCE_DIR}/include
+  ${PROJECT_SOURCE_DIR}/src/engine
+  ${MINESWEEPER_DIR}/include)
+target_compile_definitions(solver_lib_emu PRIVATE
+  RAT_FORCE_EMULATED_I128
+  solver_analyze=solver_analyze_emu
+  solver_analyze_infogain=solver_analyze_infogain_emu
+  solver_scratch_create=solver_scratch_create_emu
+  solver_scratch_destroy=solver_scratch_destroy_emu
+  solver_test_set_force_reduce=solver_test_set_force_reduce_emu
+  enumerate_reduced=enumerate_reduced_emu)
+
+add_executable(engine_emulated_test engine_emulated_test.cc)
+target_link_libraries(engine_emulated_test PRIVATE solver_lib_emu solver_lib gtest_main)
+target_include_directories(engine_emulated_test PRIVATE ${PROJECT_SOURCE_DIR}/src/engine)
+gtest_discover_tests(engine_emulated_test)
+
 # Engine-internal tests (exact-rational primitive + Gaussian-reduction driver).
 # They reach into src/engine for rational.h / engine_internal.h, which are NOT
 # part of the installed contract.

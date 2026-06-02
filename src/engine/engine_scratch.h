@@ -134,9 +134,15 @@ struct EnumScratch {
 };
 
 /* Gaussian-reduction scratch (one component at a time): rational augmented
- * matrix + free/leading split + the free-var enumeration state (per-row partial
- * value `acc` and pos/neg suffix sums of free-var coefficients for interval
- * pruning). */
+ * matrix (RREF) + free/leading split + the free-var enumeration state. The DFS
+ * runs in PURE int64: each pivot row r is scaled by a per-row common
+ * denominator den[r] (computed once in reduce_prep_enum), so its residual
+ * `iacc[r]`, free-var coefficients `icoef[r][]`, and pos/neg coefficient suffix
+ * sums are all integers over den[r]. A leading var is in {0,1} iff iacc[r] is 0
+ * or den[r]. reduce_prep_enum range-checks a per-row magnitude bound into
+ * int64, so the DFS needs no per-node overflow guard (a row that can't be
+ * bounded bails to the naive fallback, like the rational path's rat_invalid()).
+ */
 /* NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding) */
 struct ReduceScratch {
   struct Rat mat[MAX_RED_ROWS][MAX_COMP_VARS + 1]; /* rows x (vars | rhs) */
@@ -145,10 +151,14 @@ struct ReduceScratch {
   int rank;
   int freevar[MAX_COMP_VARS];
   int nfree;
-  struct Rat acc[MAX_COMP_VARS]; /* per pivot row: rhs - sum assigned coef*x */
-  struct Rat posSuf[MAX_COMP_VARS][MAX_COMP_VARS + 1]; /* suffix max(coef,0) */
-  struct Rat negSuf[MAX_COMP_VARS][MAX_COMP_VARS + 1]; /* suffix min(coef,0) */
   int xfull[MAX_COMP_VARS]; /* current full {0,1} assignment */
+  /* integerized enumeration state (scaled by den[r]); indexed by free position
+   * d in [0,nfree), nfree <= FREE_CAP. */
+  int64_t den[MAX_COMP_VARS];  /* per pivot row common denominator (> 0) */
+  int64_t iacc[MAX_COMP_VARS]; /* per pivot row residual, over den[r] */
+  int64_t icoef[MAX_COMP_VARS][FREE_CAP];       /* free-var coef, over den[r] */
+  int64_t iposSuf[MAX_COMP_VARS][FREE_CAP + 1]; /* suffix sum max(coef,0) */
+  int64_t inegSuf[MAX_COMP_VARS][FREE_CAP + 1]; /* suffix sum min(coef,0) */
 };
 
 /* NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding) */

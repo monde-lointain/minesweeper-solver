@@ -123,25 +123,93 @@ static bool reduce_rref(struct SolverScratch* s) {
   return true;
 }
 
-/* Precompute, per pivot row, the suffix sums (over free-var order) of the
- * positive and negative parts of that row's free-var coefficients, used for
- * interval pruning. Initialize acc[r] = rhs of pivot row r. Returns false on
- * overflow. */
+/* gcd of two positive int64 (Euclidean; native % is one hardware div). */
+static int64_t i64_gcd(int64_t a, int64_t b) {
+  while (b != 0) {
+    int64_t t = a % b;
+    a = b;
+    b = t;
+  }
+  return a;
+}
+
+/* *acc <- lcm(*acc, d), both > 0. Returns false on int64 overflow (the
+ * component then bails to the naive fallback). */
+static bool i64_lcm_acc(int64_t* acc, int64_t d) {
+  int64_t g = i64_gcd(*acc, d);
+  RatI128 prod = i128_mul_i64(*acc / g, d); /* (acc/g)*d == lcm(acc,d), exact */
+  if (!i128_fits_i64(prod)) {
+    return false;
+  }
+  *acc = i128_to_i64(prod);
+  return true;
+}
+
+/* Scale each pivot row r to integers over a per-row common denominator den[r]
+ * (= lcm of its rhs + free-var coefficient denominators): fills den/iacc/icoef
+ * and the pos/neg coefficient suffix sums (over free-var order), used by the
+ * int64 DFS for interval pruning. Then range-checks a conservative per-row
+ * magnitude bound into int64 so the DFS needs no per-node overflow guard.
+ * Returns false (-> naive fallback) on any int64 overflow, exactly as the
+ * rational path bails on rat_invalid(). */
 static bool reduce_prep_enum(struct SolverScratch* s) {
   int nv = s->ec.nv;
+  int nf = s->rd.nfree;
   for (int r = 0; r < s->rd.rank; ++r) {
-    s->rd.acc[r] = s->rd.mat[r][nv];
-    s->rd.posSuf[r][s->rd.nfree] = rat_from_i64(0);
-    s->rd.negSuf[r][s->rd.nfree] = rat_from_i64(0);
-    for (int d = s->rd.nfree - 1; d >= 0; --d) {
-      struct Rat coef = s->rd.mat[r][s->rd.freevar[d]];
-      struct Rat pos = rat_cmp_i64(coef, 0) > 0 ? coef : rat_from_i64(0);
-      struct Rat neg = rat_cmp_i64(coef, 0) < 0 ? coef : rat_from_i64(0);
-      s->rd.posSuf[r][d] = rat_add(s->rd.posSuf[r][d + 1], pos);
-      s->rd.negSuf[r][d] = rat_add(s->rd.negSuf[r][d + 1], neg);
-      if (!rat_ok(s->rd.posSuf[r][d]) || !rat_ok(s->rd.negSuf[r][d])) {
+    /* den[r] = lcm of the denominators of rhs and each free-var coefficient.
+     * (den[r]==1 is the common {0,1}-integer-row case: every scale below is a
+     * multiply by 1, which cannot overflow.) */
+    int64_t den = s->rd.mat[r][nv].den; /* normalized: den > 0 */
+    for (int d = 0; d < nf; ++d) {
+      if (!i64_lcm_acc(&den, s->rd.mat[r][s->rd.freevar[d]].den)) {
         return false;
       }
+    }
+    s->rd.den[r] = den;
+    /* iacc[r] = rhs scaled to /den (den is a multiple of rhs.den). */
+    struct Rat rhs = s->rd.mat[r][nv];
+    RatI128 iacc = i128_mul_i64(rhs.num, den / rhs.den);
+    if (!i128_fits_i64(iacc)) {
+      return false;
+    }
+    s->rd.iacc[r] = i128_to_i64(iacc);
+    /* free-var coefficients scaled to /den, plus pos/neg suffix sums (built in
+     * 128-bit and range-checked, so each stored partial fits int64). */
+    s->rd.iposSuf[r][nf] = 0;
+    s->rd.inegSuf[r][nf] = 0;
+    RatI128 psuf = i128_from_i64(0);
+    RatI128 nsuf = i128_from_i64(0);
+    for (int d = nf - 1; d >= 0; --d) {
+      struct Rat c = s->rd.mat[r][s->rd.freevar[d]];
+      RatI128 ic = i128_mul_i64(c.num, den / c.den);
+      if (!i128_fits_i64(ic)) {
+        return false;
+      }
+      s->rd.icoef[r][d] = i128_to_i64(ic);
+      if (s->rd.icoef[r][d] > 0) {
+        psuf = i128_add(psuf, ic);
+      } else {
+        nsuf = i128_add(nsuf, ic); /* coef<=0; +0 when zero, harmless */
+      }
+      if (!i128_fits_i64(psuf) || !i128_fits_i64(nsuf)) {
+        return false;
+      }
+      s->rd.iposSuf[r][d] = i128_to_i64(psuf);
+      s->rd.inegSuf[r][d] = i128_to_i64(nsuf);
+    }
+    /* Hoisted overflow guard: every DFS intermediate for this row -- iacc, and
+     * the prune values (iacc - posSuf) / (iacc - negSuf) compared against 0 and
+     * den -- is bounded in magnitude by |iacc| + 2*(P - N) + den, with
+     * P = iposSuf[r][0] >= 0 and N = inegSuf[r][0] <= 0. If that fits int64,
+     * the int64 DFS cannot overflow. */
+    RatI128 pp = i128_from_i64(s->rd.iposSuf[r][0]);
+    RatI128 nn = i128_from_i64(s->rd.inegSuf[r][0]);
+    RatI128 diff = i128_sub(pp, nn); /* P - N >= 0 */
+    RatI128 bound =
+        i128_add(i128_abs(i128_from_i64(s->rd.iacc[r])),
+                 i128_add(i128_add(diff, diff), i128_from_i64(s->rd.den[r])));
+    if (!i128_fits_i64(bound)) {
+      return false;
     }
   }
   return true;
@@ -161,10 +229,12 @@ static void reduced_accumulate(struct SolverScratch* s) {
   }
 }
 
-/* DFS over free variable position d in {0,1}, maintaining acc[r] (pivot-row
- * partial value) and pruning rows whose leading var can no longer land in
- * {0,1}. At the leaf, each pivot row's leading var = acc[r] must be exactly 0
- * or 1. Any rational overflow sets ec.overflow (-> fallback). */
+/* DFS over free variable position d in {0,1}, maintaining the integer residual
+ * iacc[r] (pivot-row partial value, scaled by den[r]) and pruning rows whose
+ * leading var can no longer land in {0,1}. At the leaf, each pivot row's
+ * leading var = iacc[r]/den[r] must be exactly 0 or 1 (i.e. iacc[r] == 0 or ==
+ * den[r]). All arithmetic is int64; reduce_prep_enum's per-row magnitude bound
+ * guarantees none of it overflows, so there is no per-node guard. */
 static void reduced_dfs(struct SolverScratch* s, int d) {
   if (s->ec.overflow) {
     return;
@@ -175,9 +245,9 @@ static void reduced_dfs(struct SolverScratch* s, int d) {
   }
   if (d == s->rd.nfree) {
     for (int r = 0; r < s->rd.rank; ++r) {
-      if (rat_eq_i64(s->rd.acc[r], 0)) {
+      if (s->rd.iacc[r] == 0) {
         s->rd.xfull[s->rd.pivcol[r]] = 0;
-      } else if (rat_eq_i64(s->rd.acc[r], 1)) {
+      } else if (s->rd.iacc[r] == s->rd.den[r]) {
         s->rd.xfull[s->rd.pivcol[r]] = 1;
       } else {
         return; /* leading var not in {0,1}: not a solution */
@@ -186,32 +256,20 @@ static void reduced_dfs(struct SolverScratch* s, int d) {
     reduced_accumulate(s);
     return;
   }
-  int fv = s->rd.freevar[d];
   for (int val = 0; val <= 1; ++val) {
-    s->rd.xfull[fv] = val;
+    s->rd.xfull[s->rd.freevar[d]] = val;
     if (val == 1) {
       for (int r = 0; r < s->rd.rank; ++r) {
-        struct Rat coef = s->rd.mat[r][fv];
-        if (rat_is_zero(coef)) {
-          continue;
-        }
-        s->rd.acc[r] = rat_sub(s->rd.acc[r], coef);
-        if (!rat_ok(s->rd.acc[r])) {
-          s->ec.overflow = true;
-          return;
-        }
+        s->rd.iacc[r] -= s->rd.icoef[r][d]; /* coef==0 -> no-op */
       }
     }
     bool ok = true;
     for (int r = 0; r < s->rd.rank && ok; ++r) {
-      struct Rat lo = rat_sub(s->rd.acc[r], s->rd.posSuf[r][d + 1]);
-      struct Rat hi = rat_sub(s->rd.acc[r], s->rd.negSuf[r][d + 1]);
-      if (!rat_ok(lo) || !rat_ok(hi)) {
-        s->ec.overflow = true;
-        return;
-      }
-      bool c0 = rat_cmp_i64(lo, 0) <= 0 && rat_cmp_i64(hi, 0) >= 0;
-      bool c1 = rat_cmp_i64(lo, 1) <= 0 && rat_cmp_i64(hi, 1) >= 0;
+      int64_t den = s->rd.den[r];
+      int64_t lo = s->rd.iacc[r] - s->rd.iposSuf[r][d + 1];
+      int64_t hi = s->rd.iacc[r] - s->rd.inegSuf[r][d + 1];
+      bool c0 = lo <= 0 && hi >= 0;
+      bool c1 = lo <= den && hi >= den;
       if (!c0 && !c1) {
         ok = false;
       }
@@ -224,10 +282,7 @@ static void reduced_dfs(struct SolverScratch* s, int d) {
     }
     if (val == 1) {
       for (int r = 0; r < s->rd.rank; ++r) {
-        struct Rat coef = s->rd.mat[r][fv];
-        if (!rat_is_zero(coef)) {
-          s->rd.acc[r] = rat_add(s->rd.acc[r], coef);
-        }
+        s->rd.iacc[r] += s->rd.icoef[r][d];
       }
     }
   }
