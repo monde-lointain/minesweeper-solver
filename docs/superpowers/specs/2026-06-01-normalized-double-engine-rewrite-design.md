@@ -33,11 +33,15 @@ convolutions of normalized dists) stays well inside `double` range.
 
 ## Approach (chosen)
 
-**Peak-normalized binomial-weight table**, pure integer-ratio recurrence (no
-`lgamma`/`log` → reentrant, no `signgam` race; matches existing `binom_ld`
-style). Rejected alternatives: log-domain via `lgamma` (signgam reentrancy
-hazard, needless transcendentals); inline single-reference factor-out (doesn't
-robustly avoid tail overflow, leaves the perf bug).
+**Dominant-term-normalized binomial-weight table.** The hot per-element path is
+a pure integer-ratio recurrence (no transcendentals; matches existing `binom_ld`
+style); a single cold `O(wall.len)` pass uses plain `log()` only to locate the
+normalization anchor (the dominant term of the sum). `log()` is reentrant — the
+`signgam` hazard is specific to `lgamma`, which we avoid. Rejected alternatives:
+full log-domain via `lgamma` per element (signgam hazard, transcendentals in the
+hot path); a fixed `N/2` geometric anchor (over/underflows when the weighted
+support is far from `N/2`); inline single-reference factor-out (doesn't robustly
+avoid tail overflow, leaves the perf bug).
 
 ## Changes
 
@@ -54,26 +58,45 @@ struct BinTable {
 };
 ```
 
-Built **once per analyze**, in `compute_interior_prob`, before the
-binom-consuming loops, over the window of `j` the loops query
-(`j = r_eff − f` in zsum; `j = r_eff − k − t` in `ac[k]`):
+Built **once per analyze, only when `exact_ok`**, in `compute_interior_prob`
+*after* `wall` is built and before the binom-consuming loops, over the window of
+`j` the loops query (`j = r_eff − f` in zsum; `j = r_eff − k − t` in `ac[k]`):
 
 - `base = max(0, r_eff − (MAXFLEN−1) − MAX_COMP_VARS)`, `jhi = min(N, r_eff)`,
   `span = jhi − base + 1` (≤ array size; union of both consumers' query ranges).
-- reference `jstar = clamp(N/2, base, jhi)` — the window argmax (`C(N,·)` is
-  unimodal), so **every `w ≤ 1`** (no overflow).
+- **Reference = the dominant term of the actual sum**, not a geometric peak:
+  `jstar = r_eff − f*`, where `f* = argmax_f [ wall[f] · C(N, r_eff−f) ]`. Found
+  by one cold `O(wall.len)` pass in the log domain — `lw[f] = log(wall[f]) +
+  logC(r_eff−f)`, `logC` accumulated from the `O(1)` ratio `log((N−j+1)/j)` —
+  taking the **full-scan** max (do *not* assume unimodality: `shat` need not be
+  log-concave, so `wall` need not be either). `log()` is used *only* in this cold
+  pass and is reentrant (unlike `lgamma` it never touches `signgam`); the hot
+  per-element lookups stay pure-multiply. Anchoring on the dominant term makes
+  the largest weighted contributor exactly `1` and every significant term
+  `O(1)` — eliminating **both** failure modes a fixed `N/2` anchor admits:
+  overflow (anchor too low) and catastrophic `zsum→0` underflow (anchor far from
+  the weighted support).
 - `w[jstar−base] = 1`; fill upward `× (N−j)/(j+1)`, downward `× j/(N−j+1)` — the
-  same recurrence `binom_ld` uses, pure multiply/divide.
+  same recurrence `binom_ld` uses, pure multiply/divide. Clamp any `w` to the
+  finite `double` range on build (a `w` that would overflow belongs to a
+  negligible-weight tail term, so clamping shifts the sum by < ulp; never store
+  `inf`/`nan`).
 - accessor `binw(table, j)` → `w[j−base]` if `base ≤ j < base+span`, else `0`
-  (correct: `C` is 0 outside `[0,N]`; far-tail entries underflow to 0 harmlessly).
+  (`C` is 0 outside `[0,N]`). The sum loops keep their existing `weight==0 →
+  skip` guards, so a clamped/zero `w` is never multiplied into a `0·inf = nan`.
 
 Consumers multiply `binw(...)` where they multiplied `binom_ld(...)`:
 `zsum`, `interior_num` (`compute_interior_prob`), `ac[k]` (`write_exact_marginals`).
-All three share the implicit `C(N,jstar)` factor, which **cancels** in
-`num/zsum` and `interior_num/(zsum·N)` → results identical to today minus the
-overflow. Build O(span); lookups O(1) → the per-call hotspot disappears.
+All three share the **identical** `C(N,jstar)` factor — one table, built once,
+**persisted unchanged between the two functions** — which **cancels** in
+`num/zsum` and `interior_num/(zsum·N)` → results equal today's minus the
+overflow. Build O(span) + one O(wall.len) reference pass; lookups O(1) → the
+per-call hotspot disappears.
 
-The table lives in scratch (per-instance) → reentrant.
+The table lives in scratch (per-instance) → reentrant. Because
+`wall = shat_c ⊗ oc2`, `zsum`'s dominant term sits in the same hump as every
+component's `ac` dominant term, so the shared `jstar` keeps `ac`'s terms `O(1)`
+too.
 
 ### 2. `long double` → `double` (internal)
 
@@ -95,9 +118,9 @@ production info-gain policy:
 | cap | today | observed max | **new** | rationale |
 |---|---|---|---|---|
 | `MAXCOMP` | 128 | 44 | **128 (unchanged)** | 3× headroom; frontier is few-but-large, never many small comps. |
-| `MAXFLEN` | 256 | 500 | **1024** | gates `exact_ok` only (storage, not per-op cost); generous tail margin; ~+1 MB. |
-| `MAX_COMP_VARS` | 64 | 102 | **128** | covers observed 102 + margin; the only cap with real RREF time cost → gated by the §"Validation" time check. |
-| `MAX_RED_ROWS` | 128 | — | **256** | a 128-var component can have >128 constraint rows. |
+| `MAXFLEN` | 256 | 500 | **1024** | gates `exact_ok`; ~+1 MB storage. Per-conv cost uses live length, *but* admitting ~1000-mine frontiers into the full combine DP (prefix/suffix + per-comp `oc`/`ac`) adds ~few×10⁶ double ops on those boards — bounded (~ms), checked by the time gate. |
+| `MAX_COMP_VARS` | 64 | 102 | **128** | covers observed 102 + margin; the only cap with real RREF time cost (gcd-heavy rational elimination runs to completion even when the component later falls back) → **go/no-go** time gate, not mere tuning. |
+| `MAX_RED_ROWS` | 128 | — | **256** | coverage heuristic, not a guarantee: a 128-var component *can* exceed it, in which case it falls back (safe), just uncovered. |
 
 **Search budgets (`NODE_BUDGET`, `REDUCED_NODE_BUDGET`, `FREE_CAP`) stay
 unchanged** — raising them is a known heavy-tail trap (~11s worst-case analyze).
@@ -133,6 +156,18 @@ Acceptable for the overlay (1–2 scratches) and the threaded bench
 - `out->exact` *meaning* is unchanged; it will simply read `true` more often at
   large sizes now that more boards solve exactly (honest, not a regression).
 
+## Side benefits (now true)
+
+- **Cross-platform determinism improves.** Uniform `double` replaces x86-only
+  80-bit `long double`, so results match on MSVC/valgrind, and the `golden_test`
+  baseline — currently implicitly x86-specific — becomes portable.
+- **Solution counts stay exact in `double`.** Counts are bounded by the node
+  budgets (≤ 5×10⁶ ≪ 2⁵³), so `shat = sol/total` loses no precision —
+  independent confirmation that `double` suffices for the *counting* machinery,
+  not just the final ratio. Convolution sums are all-nonnegative (no
+  cancellation); accumulated relative error ~1e-13, well under the 1e-9/1e-6
+  targets.
+
 ## Testing & validation
 
 - `engine_test` (oracle, 1e-6) and `engine_reduction_test` (reduced ≡ direct):
@@ -141,14 +176,27 @@ Acceptable for the overlay (1–2 scratches) and the threaded bench
   hard gate and must not move. If float low bits shift past 1e-9 from the
   normalized arithmetic, **regenerate** the baseline (`GOLDEN_CAPTURE=1`) and
   note it as an intentional change; investigate any integer-field move.
-- **New large-board regression test:** a 100×100/2500 state with large
+- **New large-board liveness test:** a 100×100/2500 state with large
   `interior_n` (the case today's `double`-naive build dies on at move 1) →
   assert all `mine_prob` finite and ∈[0,1] and a valid recommended move exists.
-  Permanent guard for the overflow fix.
-- **Time-validation gate (heavy-tail check):** after the cap raise, re-run the
-  bounded profiler at 100×100/2500 and confirm worst-case per-move analyze stays
-  bounded. If `MAX_COMP_VARS=128` reintroduces an RREF heavy tail, dial back to
-  96 (covers p99=83).
+  Permanent guard against overflow/`nan` — but liveness only, **not** value
+  correctness (see next).
+- **Large-N *correctness* oracle (closes the no-oracle-at-scale gap):** the
+  brute-force oracle and the golden baseline don't certify values in the
+  overflow regime. Add a check that isolates *normalization* correctness from
+  precision: compute the same engine in `long double` **using the new weight
+  table** vs `double` using the new weight table, on a corpus of dense
+  large-`interior_n` states, and assert agreement to ~1e-9. (The `long double`
+  reference can't overflow there, so any divergence is a table/cancellation
+  bug, not a range artifact.) Complement with at least one **symmetry board**
+  whose interior probability is analytically known by construction, asserted
+  directly. This is a **gate on #1**.
+- **Time-validation gate — concrete go/no-go (heavy-tail check):** after the cap
+  raise, re-run the bounded profiler at 100×100/2500 (info-gain). **Pass iff
+  p99 per-move analyze ≤ 50 ms and max ≤ 250 ms** (interactive-overlay
+  tolerance). If `MAX_COMP_VARS=128` violates it, fall back to 96 (covers
+  p99 component size = 83) and re-measure; 96 is acceptable, 128-with-heavy-tail
+  is not.
 - **`double`-build / portability check:** the `double` engine must now survive
   the 100×100/2500 workload end-to-end (what valgrind and MSVC see) — i.e. the
   proof experiment now passes instead of dying at move 1.
@@ -156,14 +204,23 @@ Acceptable for the overlay (1–2 scratches) and the threaded bench
 ## Sequencing
 
 1. **Stage A — correctness/perf/portability** (shippable alone): binomial-weight
-   table + `long double`→`double`. All existing tests green; new regression test
-   added; profiler confirms the hang is gone.
-2. **Stage B — coverage extension:** raise the storage caps + OOB fix;
-   re-validate per-move time and exact-coverage rate.
+   table + `long double`→`double`. Gates: all existing tests green; new liveness
+   + large-N correctness oracle pass; profiler confirms the hang is gone.
+2. **Stage B — coverage extension:** raise the storage caps + OOB fix. Two
+   explicit **go/no-go** gates (not tuning):
+   - **Time:** the §Testing time gate (p99 ≤ 50 ms, max ≤ 250 ms). Fail → drop
+     `MAX_COMP_VARS` to 96 and re-measure.
+   - **Value:** bench win-rate at 100×100/2500, cap-raise vs Stage-A-only. The
+     raise must **not reduce** win-rate and should show a measurable
+     decision-quality gain. If the crude fallback is within noise, **ship Stage A
+     only** — the extra exactness isn't worth its cost. (We measured how often
+     caps bind, never that binding *hurts outcomes*; this gate establishes that.)
 
 ## Decisions (resolved)
 
-- Approach: peak-normalized weight table (not log-domain, not inline factor-out).
+- Approach: dominant-term-normalized weight table — pure-multiply hot path,
+  anchored by a cold `O(wall.len)` log-domain reference pass (not full
+  log-domain, not `lgamma`, not a fixed `N/2` anchor, not inline factor-out).
 - `long double` → `double` is in scope (pays for the caps; proven sufficient).
 - `MAXFLEN = 1024`, `MAX_COMP_VARS = 128`, `MAX_RED_ROWS = 256`,
   `MAXCOMP = 128` (unchanged).
