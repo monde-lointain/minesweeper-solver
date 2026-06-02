@@ -153,10 +153,10 @@ static void reduced_accumulate(struct SolverScratch* s) {
   for (int lv = 0; lv < s->ec.nv; ++lv) {
     total += s->rd.xfull[lv];
   }
-  s->ec.sol[total] += 1.0L;
+  s->ec.sol[total] += 1.0;
   for (int lv = 0; lv < s->ec.nv; ++lv) {
     if (s->rd.xfull[lv] == 1) {
-      s->ec.mine[lv][total] += 1.0L;
+      s->ec.mine[lv][total] += 1.0;
     }
   }
 }

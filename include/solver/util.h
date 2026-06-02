@@ -7,6 +7,8 @@
 #ifndef SOLVER_UTIL_H
 #define SOLVER_UTIL_H
 
+#include "solver/ereal.h" /* ereal: engine working real type */
+
 /* Clamp v into [lo, hi]. */
 static inline int solver_clampi(int v, int lo, int hi) {
   if (v < lo) {
@@ -19,12 +21,12 @@ static inline int solver_clampi(int v, int lo, int hi) {
 }
 
 /* Clamp a probability into [0, 1]. */
-static inline long double solver_clamp01(long double v) {
-  if (v < 0.0L) {
-    return 0.0L;
+static inline ereal solver_clamp01(ereal v) {
+  if (v < 0.0) {
+    return 0.0;
   }
-  if (v > 1.0L) {
-    return 1.0L;
+  if (v > 1.0) {
+    return 1.0;
   }
   return v;
 }

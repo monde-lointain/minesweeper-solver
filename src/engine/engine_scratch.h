@@ -10,6 +10,7 @@
 
 #include "minesweeper/types.h" /* BOARD_MAX_CELLS */
 #include "rational.h"          /* struct Rat (ReduceScratch matrix) */
+#include "solver/ereal.h"      /* ereal: engine working real type */
 
 enum {
   MAXCELL = BOARD_MAX_CELLS,
@@ -35,7 +36,7 @@ enum {
  * Fields are grouped by pipeline role into POD sub-structs, not packed by
  * alignment: the padding is irrelevant in a ~2.5 MB struct, and grouping aids
  * maintenance. NOLINTNEXTLINE silences the padding analyzer on the sub-structs
- * that mix int and long double.
+ * that mix int and ereal.
  */
 
 /* constraint / variable model + union-find over vars */
@@ -72,10 +73,10 @@ struct CompResults {
   int shat_off[MAXCOMP]; /* -> shat_flat (exact only) */
   int mhat_off[MAXCOMP]; /* -> mhat_flat (exact only) */
   bool fallback[MAXCOMP];
-  int gv_flat[MAXCELL];           /* local -> global var */
-  long double fb_p_flat[MAXCELL]; /* naive prob if fallback */
-  long double shat_flat[SHAT_FLAT_MAX];
-  long double mhat_flat[MHAT_FLAT_MAX];
+  int gv_flat[MAXCELL];     /* local -> global var */
+  ereal fb_p_flat[MAXCELL]; /* naive prob if fallback */
+  ereal shat_flat[SHAT_FLAT_MAX];
+  ereal mhat_flat[MHAT_FLAT_MAX];
 };
 
 /* A polynomial: coefficient storage + live length. Owns its buffer so the
@@ -83,7 +84,7 @@ struct CompResults {
  * Convolved by engine.cc's conv. */
 /* NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding) */
 struct Poly {
-  long double v[MAXFLEN];
+  ereal v[MAXFLEN];
   int len;
 };
 
@@ -99,6 +100,19 @@ struct CombineDP {
   struct Poly oc2;        /* leave-one-out (x) fbdist */
 };
 
+/* Dominant-term-normalized binomial weights for one analyze: w[i] holds
+ * C(N, base+i) / C(N, jstar) over the window the interior combine queries
+ * (j = base..base+span-1), with N=interior_n and jstar the dominant term of the
+ * interior sum. Built once by engine.cc's bintable_build; read via binw. Sized
+ * to the widest possible window (zsum spans <= MAXFLEN, marginals extend it by
+ * <= MAX_COMP_VARS). */
+struct BinTable {
+  ereal w[MAXFLEN + MAX_COMP_VARS];
+  int base; /* j corresponding to w[0] */
+  int span; /* number of valid entries */
+  int N;    /* = interior_n the table was built for */
+};
+
 /* enumeration scratch (one component at a time) */
 /* NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding) */
 struct EnumScratch {
@@ -112,9 +126,8 @@ struct EnumScratch {
   int varcon[MAX_COMP_VARS][MAXVARCON];
   int varcon_n[MAX_COMP_VARS];
   int assign[MAX_COMP_VARS];
-  long double sol[MAX_COMP_VARS + 1]; /* per mine-count k: #solutions */
-  long double mine[MAX_COMP_VARS]
-                  [MAX_COMP_VARS + 1]; /* per (var,k): incidence */
+  ereal sol[MAX_COMP_VARS + 1]; /* per mine-count k: #solutions */
+  ereal mine[MAX_COMP_VARS][MAX_COMP_VARS + 1]; /* per (var,k): incidence */
   int nodes;
   bool overflow;
 };
@@ -143,6 +156,7 @@ struct SolverScratch {
   struct CompLayout comp;
   struct CompResults res;
   struct CombineDP dp;
+  struct BinTable bt;
   struct EnumScratch ec;
   struct ReduceScratch rd;
   /* Test-only: force the Gaussian-reduction path even for nv <= CAP_VARS, so

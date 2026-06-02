@@ -32,20 +32,20 @@
 
 enum { VAR_UNKNOWN = -1, VAR_SAFE = 0, VAR_MINE = 1 };
 
-static const long double EPS = 1e-9L;
+static const ereal EPS = 1e-9;
 static const int NODE_BUDGET = 5000000;
 
 /* Compact-ragged accessors: per-component views into the flat result arrays. */
 static inline int* res_gv(struct SolverScratch* s, int c) {
   return &s->res.gv_flat[s->res.var_off[c]];
 }
-static inline long double* res_fbp(struct SolverScratch* s, int c) {
+static inline ereal* res_fbp(struct SolverScratch* s, int c) {
   return &s->res.fb_p_flat[s->res.var_off[c]];
 }
-static inline long double* res_shat(struct SolverScratch* s, int c) {
+static inline ereal* res_shat(struct SolverScratch* s, int c) {
   return &s->res.shat_flat[s->res.shat_off[c]];
 }
-static inline long double* res_mhat(struct SolverScratch* s, int c, int lv) {
+static inline ereal* res_mhat(struct SolverScratch* s, int c, int lv) {
   return &s->res.mhat_flat[s->res.mhat_off[c] + lv * (s->res.nv[c] + 1)];
 }
 
@@ -65,16 +65,17 @@ void solver_test_set_force_reduce(struct SolverScratch* s, bool on) {
 
 /* ---- helpers --------------------------------------------------------------
  */
-static long double binom_ld(int n, int k) {
-  if (k < 0 || k > n) {
-    return 0.0L;
+/* Normalized binomial weight C(N,j)/C(N,jstar) read from the table built once
+ * per analyze by bintable_build (N == interior_n). 0 for j outside the built
+ * window: C(N,j) is 0 outside [0,N], and the window covers every weighted term
+ * of the interior combine (zsum + marginals). Replaces the old per-call O(min)
+ * binom_ld and removes the long-double exponent-range dependency. */
+static inline ereal binw(const struct SolverScratch* s, int j) {
+  int i = j - s->bt.base;
+  if (i < 0 || i >= s->bt.span) {
+    return (ereal)0.0;
   }
-  int kk = (k < n - k) ? k : n - k;
-  long double r = 1.0L;
-  for (int i = 0; i < kk; ++i) {
-    r = r * (long double)(n - i) / (long double)(i + 1);
-  }
-  return r;
+  return s->bt.w[i];
 }
 
 static int uf_find(struct SolverScratch* s, int x) {
@@ -281,10 +282,10 @@ static void enum_dfs(struct SolverScratch* s, int i, int total) {
     return;
   }
   if (i == s->ec.nv) {
-    s->ec.sol[total] += 1.0L;
+    s->ec.sol[total] += 1.0;
     for (int lv = 0; lv < s->ec.nv; ++lv) {
       if (s->ec.assign[lv] == 1) {
-        s->ec.mine[lv][total] += 1.0L;
+        s->ec.mine[lv][total] += 1.0;
       }
     }
     return;
@@ -392,11 +393,11 @@ static int build_local_model(struct SolverScratch* s, int comp, int pin_var,
     ++s->ec.ncon;
   }
   for (int k = 0; k <= m; ++k) {
-    s->ec.sol[k] = 0.0L;
+    s->ec.sol[k] = 0.0;
   }
   for (int lv = 0; lv < m; ++lv) {
     for (int k = 0; k <= m; ++k) {
-      s->ec.mine[lv][k] = 0.0L;
+      s->ec.mine[lv][k] = 0.0;
     }
   }
   for (int cj = 0; cj < s->ec.ncon; ++cj) {
@@ -410,21 +411,20 @@ static int build_local_model(struct SolverScratch* s, int comp, int pin_var,
  * allow_force lets the test-only force_reduce flag drive the reduced path on
  * small systems (production-inert). Returns the total solution count, or 0 on
  * overflow / infeasible (the caller treats <= 0 as a fallback). */
-static long double enumerate_local(struct SolverScratch* s, int m,
-                                   bool allow_force) {
+static ereal enumerate_local(struct SolverScratch* s, int m, bool allow_force) {
   if (m > CAP_VARS || (allow_force && s->force_reduce)) {
     if (!enumerate_reduced(s)) { /* resets nodes/overflow itself */
-      return 0.0L;
+      return 0.0;
     }
   } else {
     s->ec.nodes = 0;
     s->ec.overflow = false;
     enum_dfs(s, 0, 0); /* direct: branch all vars */
     if (s->ec.overflow) {
-      return 0.0L;
+      return 0.0;
     }
   }
-  long double total = 0.0L;
+  ereal total = 0.0;
   for (int k = 0; k <= m; ++k) {
     total += s->ec.sol[k];
   }
@@ -444,8 +444,8 @@ static bool enumerate_component(struct SolverScratch* s, int comp,
   if (build_local_model(s, comp, -1, NULL) != nv) {
     return false; /* infeasible (cannot happen with no pin): fallback */
   }
-  long double total = enumerate_local(s, nv, true);
-  if (total <= 0.0L) {
+  ereal total = enumerate_local(s, nv, true);
+  if (total <= 0.0) {
     return false; /* node-budget overflow or infeasible: fallback */
   }
   /* normalize into compact comp tables */
@@ -454,12 +454,12 @@ static bool enumerate_component(struct SolverScratch* s, int comp,
   *shat_used += nv + 1;
   s->res.mhat_off[comp] = *mhat_used;
   *mhat_used += nv * (nv + 1);
-  long double* shat = res_shat(s, comp);
+  ereal* shat = res_shat(s, comp);
   for (int k = 0; k <= nv; ++k) {
     shat[k] = s->ec.sol[k] / total;
   }
   for (int lv = 0; lv < nv; ++lv) {
-    long double* mh = res_mhat(s, comp, lv);
+    ereal* mh = res_mhat(s, comp, lv);
     for (int k = 0; k <= nv; ++k) {
       mh[k] = s->ec.mine[lv][k] / total;
     }
@@ -477,10 +477,10 @@ static void fallback_component(struct SolverScratch* s, int comp) {
   int use = nv < CAP_VARS ? nv : CAP_VARS;
   s->res.nv[comp] = use;
   int* gv = res_gv(s, comp);
-  long double* fbp = res_fbp(s, comp);
+  ereal* fbp = res_fbp(s, comp);
   for (int lv = 0; lv < use; ++lv) {
     int cell = s->cm.cell_of_var[gv[lv]];
-    long double sum = 0.0L;
+    ereal sum = 0.0;
     int cnt = 0;
     for (int ci = 0; ci < s->cm.ncon; ++ci) {
       int unknown = 0;
@@ -495,11 +495,11 @@ static void fallback_component(struct SolverScratch* s, int comp) {
       }
       if (has && unknown > 0) {
         int rem = s->cm.con_need[ci] - fixed_mines;
-        sum += solver_clamp01((long double)rem / (long double)unknown);
+        sum += solver_clamp01((ereal)rem / (ereal)unknown);
         ++cnt;
       }
     }
-    fbp[lv] = cnt > 0 ? sum / (long double)cnt : 0.5L;
+    fbp[lv] = cnt > 0 ? sum / (ereal)cnt : 0.5;
   }
 }
 
@@ -508,7 +508,7 @@ static void fallback_component(struct SolverScratch* s, int comp) {
 /* Materialize a coefficient span [v, v+len) into poly p's storage, so array
  * slices (res_shat, a local Bernoulli pair) can feed conv, which works on
  * struct Poly. */
-static void poly_set(struct Poly* p, const long double* v, int len) {
+static void poly_set(struct Poly* p, const ereal* v, int len) {
   p->len = len;
   for (int i = 0; i < len; ++i) {
     p->v[i] = v[i];
@@ -520,10 +520,10 @@ static void poly_set(struct Poly* p, const long double* v, int len) {
 static void conv(const struct Poly* a, const struct Poly* b, struct Poly* out) {
   int n = a->len + b->len - 1;
   for (int i = 0; i < n; ++i) {
-    out->v[i] = 0.0L;
+    out->v[i] = 0.0;
   }
   for (int i = 0; i < a->len; ++i) {
-    if (a->v[i] == 0.0L) {
+    if (a->v[i] == 0.0) {
       continue;
     }
     for (int j = 0; j < b->len; ++j) {
@@ -543,8 +543,8 @@ struct AnalyzeCtx {
   int interior_n;
   int r_eff;
   int nexact;
-  long double zsum;
-  long double interior_prob;
+  ereal zsum;
+  ereal interior_prob;
 };
 
 /* Terminal verdict (won/lost). Returns true if `out` was fully written. */
@@ -563,8 +563,7 @@ static bool analyze_terminal(const struct Board* b, struct Analysis* out) {
 /* EVAL_START: nothing revealed yet -> uniform density, suggest a corner. */
 static void analyze_start(const struct Board* b, struct Analysis* out) {
   int ncells = b->width * b->height;
-  long double uniform =
-      ncells > 0 ? (long double)b->mines / (long double)ncells : 0.0L;
+  ereal uniform = ncells > 0 ? (ereal)b->mines / (ereal)ncells : 0.0;
   for (int i = 0; i < ncells; ++i) {
     if (!b->cells[i].revealed) {
       out->cells[i].mine_prob = (double)uniform;
@@ -604,8 +603,8 @@ static int count_interior(const struct Board* b, struct SolverScratch* s) {
 /* Enumerate every component (exact, else naive fallback). May clear *exact_ok
  * if the exact frontier overflows MAXFLEN; accumulates fallback mine mass. */
 static void enumerate_all(struct SolverScratch* s, int ncomp, bool* exact_ok,
-                          long double* fallback_expected) {
-  *fallback_expected = 0.0L;
+                          ereal* fallback_expected) {
+  *fallback_expected = 0.0;
   if (!*exact_ok) {
     return;
   }
@@ -628,7 +627,7 @@ static void enumerate_all(struct SolverScratch* s, int ncomp, bool* exact_ok,
       exact_unknown += s->res.nv[c];
     } else {
       fb_unknown += s->res.nv[c];
-      long double* fbp = res_fbp(s, c);
+      ereal* fbp = res_fbp(s, c);
       for (int lv = 0; lv < s->res.nv[c]; ++lv) {
         *fallback_expected += fbp[lv];
       }
@@ -644,16 +643,16 @@ static void enumerate_all(struct SolverScratch* s, int ncomp, bool* exact_ok,
  * when there are no fallback components. Result in s->dp.fbdist.v[0..len).
  */
 static void build_fbdist(struct SolverScratch* s, int ncomp) {
-  s->dp.fbdist.v[0] = 1.0L;
+  s->dp.fbdist.v[0] = 1.0;
   s->dp.fbdist.len = 1;
   struct Poly bern;
   for (int c = 0; c < ncomp; ++c) {
     if (!s->res.fallback[c]) {
       continue;
     }
-    long double* fbp = res_fbp(s, c);
+    ereal* fbp = res_fbp(s, c);
     for (int lv = 0; lv < s->res.nv[c]; ++lv) {
-      bern.v[0] = 1.0L - fbp[lv];
+      bern.v[0] = 1.0 - fbp[lv];
       bern.v[1] = fbp[lv];
       bern.len = 2;
       conv(&s->dp.fbdist, &bern, &s->dp.wall);
@@ -662,6 +661,91 @@ static void build_fbdist(struct SolverScratch* s, int ncomp) {
       }
       s->dp.fbdist.len = s->dp.wall.len;
     }
+  }
+}
+
+/* Build the dominant-term-normalized binomial-weight table
+ * w[j]=C(N,j)/C(N,jstar) for N=interior_n over the window of j the interior
+ * combine queries (j = r_eff - f for the zsum, j = r_eff - k - t for the
+ * marginals; both bounded below by r_eff-(MAXFLEN-1)-MAX_COMP_VARS and above by
+ * min(N,r_eff)). The reference jstar is the argmax over f of
+ * wall[f]*C(N,r_eff-f) — the dominant term of the actual sum — located by a
+ * cold O(wall.len) log-domain scan. (Plain log() is reentrant; lgamma's signgam
+ * hazard is avoided. shat need not be log-concave, so wall need not be either
+ * -> full scan, no unimodality assumption.) Anchoring there makes every
+ * significant normalized term O(1): both overflow and zsum->0 underflow are
+ * avoided, and the shared C(N,jstar) factor cancels in the output ratios. The
+ * pure-multiply ratio recurrence fills w; a tail entry that still overflows the
+ * type (only reachable with negligible weight) is clamped to ENGINE_REAL_MAX so
+ * no inf/nan reaches a sum. Correctness in the overflow regime is gated by the
+ * large-N oracle (ereal=long double vs double, both via this table). Must be
+ * called AFTER s->dp.wall is built and the table must persist unchanged into
+ * write_exact_marginals. */
+static void bintable_build(struct SolverScratch* s, int N, int r_eff) {
+  struct BinTable* bt = &s->bt;
+  bt->N = N;
+  int cap = (int)(sizeof bt->w / sizeof bt->w[0]);
+  int lo = r_eff - (MAXFLEN - 1) - MAX_COMP_VARS;
+  if (lo < 0) {
+    lo = 0;
+  }
+  int hi = (r_eff < N) ? r_eff : N;
+  if (hi < lo) {
+    hi = lo;
+  }
+  bt->base = lo;
+  bt->span = hi - lo + 1;
+  if (bt->span > cap) {
+    bt->span = cap;
+  }
+  /* reference jstar = r_eff - argmax_f [ wall[f] * C(N, r_eff-f) ], log domain
+   */
+  int best_f = -1;
+  double best_lw = 0.0;
+  double logc = 0.0; /* relative log C(N, current j) */
+  bool have = false;
+  for (int f = 0; f < s->dp.wall.len; ++f) {
+    int j = r_eff - f;
+    if (j < 0) {
+      break; /* larger f only lowers j further */
+    }
+    if (j > N) {
+      continue; /* C(N,j)=0; anchor not started yet */
+    }
+    if (!have) {
+      logc = 0.0; /* anchor relative log at the first valid j */
+      have = true;
+    } else {
+      /* step (j+1) -> j: logC(N,j) = logC(N,j+1) + log(j+1) - log(N-j) */
+      logc += log((double)(j + 1)) - log((double)(N - j));
+    }
+    double wv = (double)s->dp.wall.v[f];
+    if (wv > 0.0) {
+      double lw = log(wv) + logc;
+      if (best_f < 0 || lw > best_lw) {
+        best_lw = lw;
+        best_f = f;
+      }
+    }
+  }
+  int js = (best_f >= 0) ? (r_eff - best_f) : hi;
+  if (js < bt->base) {
+    js = bt->base;
+  }
+  if (js > bt->base + bt->span - 1) {
+    js = bt->base + bt->span - 1;
+  }
+  int jsi = js - bt->base;
+  bt->w[jsi] = (ereal)1.0;
+  for (int i = jsi + 1; i < bt->span; ++i) { /* j > jstar: ratio (N-j+1)/j */
+    int j = bt->base + i;
+    ereal r = bt->w[i - 1] * (ereal)(N - j + 1) / (ereal)j;
+    bt->w[i] = isfinite(r) ? r : (ereal)ENGINE_REAL_MAX;
+  }
+  for (int i = jsi - 1; i >= 0; --i) { /* j < jstar: ratio (j+1)/(N-j) */
+    int j = bt->base + i;
+    ereal r = bt->w[i + 1] * (ereal)(j + 1) / (ereal)(N - j);
+    bt->w[i] = isfinite(r) ? r : (ereal)ENGINE_REAL_MAX;
   }
 }
 
@@ -674,9 +758,9 @@ static void build_fbdist(struct SolverScratch* s, int ncomp) {
 static void compute_interior_prob(const struct Board* b,
                                   struct SolverScratch* s,
                                   struct AnalyzeCtx* ctx,
-                                  long double fallback_expected) {
+                                  ereal fallback_expected) {
   int rem_mines = b->mines - ctx->known_mines;
-  int r_eff_approx = rem_mines - (int)llroundl(fallback_expected);
+  int r_eff_approx = rem_mines - (int)llround(fallback_expected);
   r_eff_approx = (r_eff_approx < 0) ? 0 : r_eff_approx;
   /* exact DP: full budget (fbdist carries the fallback mines distributionally);
    * no-DP fallback: keep the rounded point estimate. */
@@ -693,11 +777,11 @@ static void compute_interior_prob(const struct Board* b,
   }
   ctx->nexact = nexact;
 
-  long double zsum = 0.0L;
-  long double interior_num = 0.0L;
+  ereal zsum = 0.0;
+  ereal interior_num = 0.0;
   if (ctx->exact_ok) {
     build_fbdist(s, ctx->ncomp);
-    s->dp.prefix[0].v[0] = 1.0L;
+    s->dp.prefix[0].v[0] = 1.0;
     s->dp.prefix[0].len = 1;
     struct Poly shat;
     for (int e = 0; e < nexact; ++e) {
@@ -705,7 +789,7 @@ static void compute_interior_prob(const struct Board* b,
       poly_set(&shat, res_shat(s, c), s->res.nv[c] + 1);
       conv(&s->dp.prefix[e], &shat, &s->dp.prefix[e + 1]);
     }
-    s->dp.suffix[nexact].v[0] = 1.0L;
+    s->dp.suffix[nexact].v[0] = 1.0;
     s->dp.suffix[nexact].len = 1;
     for (int e = nexact - 1; e >= 0; --e) {
       int c = s->dp.exact_idx[e];
@@ -714,26 +798,32 @@ static void compute_interior_prob(const struct Board* b,
     }
     /* Wall = (exact prefix) (x) fbdist = full frontier-mine distribution. */
     conv(&s->dp.prefix[nexact], &s->dp.fbdist, &s->dp.wall);
-    /* zsum = sum_F Wall[F] * C(interior_n, r_eff - F) */
+    /* Normalize the interior binomials against the dominant term of this very
+     * sum (built from Wall), so every weighted term is O(1) — no overflow, no
+     * zsum->0 underflow. The shared C(N,jstar) factor cancels in the final
+     * ratios (interior_prob, and the marginals' num/zsum). */
+    bintable_build(s, ctx->interior_n, ctx->r_eff);
+    /* zsum = sum_F Wall[F] * C(interior_n, r_eff - F)  (normalized; see binw)
+     */
     for (int f = 0; f < s->dp.wall.len; ++f) {
-      long double w = s->dp.wall.v[f];
-      if (w == 0.0L) {
+      ereal w = s->dp.wall.v[f];
+      if (w == 0.0) {
         continue;
       }
-      long double bcoef = binom_ld(ctx->interior_n, ctx->r_eff - f);
+      ereal bcoef = binw(s, ctx->r_eff - f);
       zsum += w * bcoef;
-      interior_num += w * bcoef * (long double)(ctx->r_eff - f);
+      interior_num += w * bcoef * (ereal)(ctx->r_eff - f);
     }
   }
   ctx->zsum = zsum;
 
-  long double interior_prob = 0.0L;
-  if (ctx->exact_ok && zsum > 0.0L && ctx->interior_n > 0) {
-    interior_prob = interior_num / (zsum * (long double)ctx->interior_n);
+  ereal interior_prob = 0.0;
+  if (ctx->exact_ok && zsum > 0.0 && ctx->interior_n > 0) {
+    interior_prob = interior_num / (zsum * (ereal)ctx->interior_n);
   } else if (ctx->interior_n > 0) {
     /* crude no-DP path: uniform remaining density (point estimate). */
-    interior_prob = solver_clamp01((long double)r_eff_approx /
-                                   (long double)ctx->interior_n);
+    interior_prob =
+        solver_clamp01((ereal)r_eff_approx / (ereal)ctx->interior_n);
   }
   ctx->interior_prob = interior_prob;
 }
@@ -768,7 +858,7 @@ static void write_baseline_probs(const struct Board* b, struct Analysis* out,
 /* exact component marginals: P(v) = (sum_k mhat[v][k]*A_c[k]) / zsum */
 static void write_exact_marginals(struct Analysis* out, struct SolverScratch* s,
                                   const struct AnalyzeCtx* ctx) {
-  if (!(ctx->exact_ok && ctx->zsum > 0.0L)) {
+  if (!(ctx->exact_ok && ctx->zsum > 0.0)) {
     return;
   }
   for (int e = 0; e < ctx->nexact; ++e) {
@@ -779,22 +869,24 @@ static void write_exact_marginals(struct Analysis* out, struct SolverScratch* s,
      * frontier mines (other exact comps + fallback comps). */
     conv(&s->dp.oc, &s->dp.fbdist, &s->dp.oc2);
     int oc2len = s->dp.oc2.len;
-    /* A_c[k] = sum_t oc2[t] * C(interior_n, r_eff - k - t) */
-    long double ac[MAX_COMP_VARS + 1];
+    /* A_c[k] = sum_t oc2[t] * C(interior_n, r_eff - k - t)  (same normalized
+     * table/reference as zsum, so the C(N,jstar) factor cancels in num/zsum).
+     */
+    ereal ac[MAX_COMP_VARS + 1];
     for (int k = 0; k <= s->res.nv[c]; ++k) {
-      long double sm = 0.0L;
+      ereal sm = 0.0;
       for (int t = 0; t < oc2len; ++t) {
-        if (s->dp.oc2.v[t] == 0.0L) {
+        if (s->dp.oc2.v[t] == 0.0) {
           continue;
         }
-        sm += s->dp.oc2.v[t] * binom_ld(ctx->interior_n, ctx->r_eff - k - t);
+        sm += s->dp.oc2.v[t] * binw(s, ctx->r_eff - k - t);
       }
       ac[k] = sm;
     }
     int* gv = res_gv(s, c);
     for (int lv = 0; lv < s->res.nv[c]; ++lv) {
-      long double* mh = res_mhat(s, c, lv);
-      long double num = 0.0L;
+      ereal* mh = res_mhat(s, c, lv);
+      ereal num = 0.0;
       for (int k = 0; k <= s->res.nv[c]; ++k) {
         num += mh[k] * ac[k];
       }
@@ -810,7 +902,7 @@ static void write_fallback_probs(struct Analysis* out, struct SolverScratch* s,
   for (int c = 0; c < ctx->ncomp; ++c) {
     if (!ctx->exact_ok || s->res.fallback[c]) {
       int* gv = res_gv(s, c);
-      long double* fbp = res_fbp(s, c);
+      ereal* fbp = res_fbp(s, c);
       for (int lv = 0; lv < s->res.nv[c]; ++lv) {
         int cell = s->cm.cell_of_var[gv[lv]];
         out->cells[cell].mine_prob = (double)fbp[lv];
@@ -894,10 +986,10 @@ static void pick_best_move(const struct Board* b, struct Analysis* out,
         continue;
       }
       double p = out->cells[i].mine_prob;
-      if ((long double)p < EPS) {
+      if ((ereal)p < EPS) {
         out->cells[i].forced_safe = true;
       }
-      if ((long double)p > 1.0L - EPS) {
+      if ((ereal)p > 1.0 - EPS) {
         out->cells[i].forced_mine = true;
       }
       if (p < best) {
@@ -915,7 +1007,7 @@ static void pick_best_move(const struct Board* b, struct Analysis* out,
   out->best_prob = best_x >= 0 ? best : 0.0;
   if (best_x < 0) {
     out->eval = EVAL_SOLVED;
-  } else if ((long double)best < EPS) {
+  } else if ((ereal)best < EPS) {
     out->eval = EVAL_SAFE;
   } else {
     out->eval = EVAL_GUESS;
@@ -949,7 +1041,7 @@ void solver_analyze(const struct Board* b, struct Analysis* out,
   ctx.exact_ok = (ctx.ncomp <= MAXCOMP);
   ctx.interior_n = count_interior(b, s);
 
-  long double fallback_expected = 0.0L;
+  ereal fallback_expected = 0.0;
   enumerate_all(s, ctx.ncomp, &ctx.exact_ok, &fallback_expected);
 
   compute_interior_prob(b, s, &ctx, fallback_expected);
@@ -991,27 +1083,27 @@ static int component_infogain(struct SolverScratch* s, int comp, int pin_var) {
   if (m <= 0) {
     return 0; /* pin removed the only var (m==0) or is infeasible (m<0) */
   }
-  long double total = enumerate_local(s, m, true);
-  if (total <= 0.0L) {
+  ereal total = enumerate_local(s, m, true);
+  if (total <= 0.0) {
     return 0; /* node-budget overflow or infeasible */
   }
   int gain = 0;
   for (int lv = 0; lv < m; ++lv) {
-    long double rm = 0.0L;
+    ereal rm = 0.0;
     for (int k = 0; k <= m; ++k) {
       rm += s->ec.mine[lv][k];
     }
     rm /= total;
-    bool restr_inv = rm < EPS || rm > 1.0L - EPS;
+    bool restr_inv = rm < EPS || rm > 1.0 - EPS;
     if (!restr_inv) {
       continue; /* still uncertain after the guess */
     }
-    long double* mh = res_mhat(s, comp, ec2orig[lv]);
-    long double om = 0.0L;
+    ereal* mh = res_mhat(s, comp, ec2orig[lv]);
+    ereal om = 0.0;
     for (int k = 0; k <= nv_full; ++k) {
       om += mh[k];
     }
-    bool orig_inv = om < EPS || om > 1.0L - EPS;
+    bool orig_inv = om < EPS || om > 1.0 - EPS;
     if (!orig_inv) {
       ++gain; /* newly forced by assuming the candidate safe */
     }
