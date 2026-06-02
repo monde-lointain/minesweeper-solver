@@ -19,6 +19,14 @@
 
 #include <float.h>
 
+/* ENGINE_REAL_LDBL is the single-token selector for the long-double reference
+ * build (clean to pass as a bare -D, no embedded space). ENGINE_REAL_T /
+ * ENGINE_REAL_MAX may also be overridden directly. */
+#if defined(ENGINE_REAL_LDBL)
+#define ENGINE_REAL_T long double
+#define ENGINE_REAL_MAX LDBL_MAX
+#endif
+
 #ifndef ENGINE_REAL_T
 #define ENGINE_REAL_T double
 #endif

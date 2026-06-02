@@ -15,6 +15,31 @@ add_executable(golden_test golden_test.cc)
 target_link_libraries(golden_test PRIVATE solver_lib gtest_main)
 gtest_discover_tests(golden_test)
 
+# Large-N correctness oracle (Stream A.1-alpha). solver_lib_ld recompiles the
+# SAME engine sources with ereal widened to long double (ENGINE_REAL_LDBL; range
+# ~1e4932, never overflows for the test boards) and its public symbols renamed
+# `_ld`, so it links alongside the production double solver_lib in one test exe.
+# Engine helpers (solver_neighbor, game_index) are header-inline -> self-contained.
+add_library(solver_lib_ld STATIC
+  ${PROJECT_SOURCE_DIR}/src/engine/engine.cc
+  ${PROJECT_SOURCE_DIR}/src/engine/engine_reduce.cc)
+target_include_directories(solver_lib_ld PRIVATE
+  ${PROJECT_SOURCE_DIR}/include
+  ${PROJECT_SOURCE_DIR}/src/engine
+  ${MINESWEEPER_DIR}/include)
+target_compile_definitions(solver_lib_ld PRIVATE
+  ENGINE_REAL_LDBL
+  solver_analyze=solver_analyze_ld
+  solver_analyze_infogain=solver_analyze_infogain_ld
+  solver_scratch_create=solver_scratch_create_ld
+  solver_scratch_destroy=solver_scratch_destroy_ld
+  solver_test_set_force_reduce=solver_test_set_force_reduce_ld
+  enumerate_reduced=enumerate_reduced_ld)
+
+add_executable(engine_largeN_test engine_largeN_test.cc)
+target_link_libraries(engine_largeN_test PRIVATE solver_lib_ld solver_lib gtest_main)
+gtest_discover_tests(engine_largeN_test)
+
 # Engine-internal tests (exact-rational primitive + Gaussian-reduction driver).
 # They reach into src/engine for rational.h / engine_internal.h, which are NOT
 # part of the installed contract.
